@@ -1,0 +1,222 @@
+class AISEncoder {
+  static encode6bit(val) {
+    if (val < 0 || val > 63) throw new Error("6-bit out of range: " + val);
+    return val <= 39 ? String.fromCharCode(val + 48) : String.fromCharCode(val + 56);
+  }
+
+  static toTwosComplement(value, bits) {
+    if (value < 0) value = (1 << bits) + value;
+    return value;
+  }
+
+  static textToSixBit(str, length) {
+    const table = '@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_ !"#$%&\'()*+,-./0123456789:;<=>?';
+    let bits = '';
+    str = str || '';
+    for (let i = 0; i < length; i++) {
+      let c = i < str.length ? str[i].toUpperCase() : '@';
+      let idx = table.indexOf(c);
+      if (idx < 0) idx = 0;
+      bits += idx.toString(2).padStart(6, '0');
+    }
+    return bits;
+  }
+
+  static callsignToSixBit(callsign) {
+    callsign = (callsign || '').trim().toUpperCase();
+    const padded = callsign.padEnd(7, '@').substring(0, 7);
+    return this.textToSixBit(padded, 7);
+  }
+
+  static bitsToPayload(bits) {
+    let payload = '';
+    while (bits.length % 6 !== 0) {
+      bits += '0';
+    }
+    
+    for (let i = 0; i < bits.length; i += 6) {
+      let chunk = bits.substring(i, i + 6);
+      let val = parseInt(chunk, 2);
+      payload += this.encode6bit(val);
+    }
+    return payload;
+  }
+
+  static calculateChecksum(nmea) {
+    let cs = 0;
+    for (let i = 1; i < nmea.length; i++) cs ^= nmea.charCodeAt(i);
+    return cs.toString(16).toUpperCase().padStart(2, '0');
+  }
+
+  static createPositionReport(vessel, config) {
+    try {
+      const mmsi = parseInt(vessel.mmsi);
+      if (!mmsi || mmsi === 0) return null;
+
+      const nav = vessel.navigation || {};
+      const pos = nav.position?.value || nav.position || {};
+      const latitude = pos.latitude;
+      const longitude = pos.longitude;
+      if (latitude === undefined || longitude === undefined) return null;
+
+      const state = nav.state?.value || '';
+      let navStatus = 15;
+      const stateMap = {
+        'motoring': 0, 'anchored': 1, 'not under command': 2, 'restricted maneuverability': 3,
+        'constrained by draft': 4, 'moored': 5, 'aground': 6, 'fishing': 7,
+        'sailing': 8, 'hazardous material high speed': 9, 'hazardous material wing in ground': 10,
+        'power-driven vessel towing astern': 11, 'power-driven vessel pushing ahead': 12,
+        'reserved': 13, 'ais-sart': 14
+      };
+      if (state && stateMap[state] !== undefined) navStatus = stateMap[state];
+
+      const timestamp = 60;
+      const raim = 0;
+      const maneuver = 0;
+      
+      const rateOfTurn = nav.rateOfTurn?.value || 0;
+      let rot = -128;
+      if (rateOfTurn !== 0) {
+        rot = Math.round(rateOfTurn * 4.733 * Math.sqrt(Math.abs(rateOfTurn)));
+        rot = Math.max(-126, Math.min(126, rot));
+      }
+      
+      const sog = nav.speedOverGround?.value || nav.speedOverGround || 0;
+      const cog = nav.courseOverGroundTrue?.value || nav.courseOverGroundTrue || 0;
+      const heading = nav.headingTrue?.value || nav.headingTrue || 0;
+
+      let sogValue = typeof sog === 'number' ? sog : 0;
+      if (sogValue < config.minAlarmSOG) sogValue = 0;
+
+      const cogValue = typeof cog === 'object' ? 0 : (typeof cog === 'number' ? cog : 0);
+      const headingValue = typeof heading === 'object' ? 0 : (typeof heading === 'number' ? heading : 0);
+
+      const lon = Math.round(longitude * 600000);
+      const lat = Math.round(latitude * 600000);
+      
+      const sogKnots = sogValue * 1.94384;
+      const sog10 = Math.round(sogKnots * 10);
+      
+      const cogDegrees = cogValue * 180 / Math.PI;
+      let cog10;
+      if (sogKnots < config.minAlarmSOG) {
+        cog10 = 3600;
+      } else {
+        cog10 = Math.round(cogDegrees * 10);
+      }
+      
+      const headingDegrees = headingValue * 180 / Math.PI;
+      const headingInt = Math.round(headingDegrees);
+
+      let bits = '';
+      bits += (1).toString(2).padStart(6, '0');
+      bits += (0).toString(2).padStart(2, '0');
+      bits += mmsi.toString(2).padStart(30, '0');
+      bits += navStatus.toString(2).padStart(4, '0');
+      bits += this.toTwosComplement(rot, 8).toString(2).padStart(8, '0');
+      bits += sog10.toString(2).padStart(10, '0');
+      bits += '0';
+      bits += this.toTwosComplement(lon, 28).toString(2).padStart(28, '0');
+      bits += this.toTwosComplement(lat, 27).toString(2).padStart(27, '0');
+      bits += cog10.toString(2).padStart(12, '0');
+      bits += headingInt.toString(2).padStart(9, '0');
+      bits += timestamp.toString(2).padStart(6, '0');
+      bits += maneuver.toString(2).padStart(2, '0');
+      bits += '000';
+      bits += raim.toString();
+      bits += '0000000000000000000';
+
+      return this.bitsToPayload(bits);
+    } catch (error) {
+      console.error('Error creating position report:', error);
+      return null;
+    }
+  }
+
+  static createStaticVoyage(vessel) {
+    try {
+      const mmsi = parseInt(vessel.mmsi);
+      if (!mmsi || mmsi === 0) return null;
+
+      const design = vessel.design || {};
+      const length = design.length?.value?.overall || 0;
+      const beam = design.beam?.value || 0;
+      const draft = design.draft?.value?.maximum || 0;
+      const shipType = design.aisShipType?.value?.id || 0;
+      
+      const imo = parseInt(vessel.imo) || 0;
+      const aisVersion = 0;
+      
+      const ais = vessel.sensors?.ais || {};
+      const fromBow = ais.fromBow?.value || 0;
+      const fromCenter = ais.fromCenter?.value || 0;
+      
+      const toBow = Math.round(fromBow);
+      const toStern = Math.round(Math.max(0, length - fromBow));
+      const toPort = Math.round(Math.max(0, beam / 2 - fromCenter));
+      const toStarboard = Math.round(Math.max(0, beam / 2 + fromCenter));
+
+      let epfd = 1;
+      const positionSource = vessel.navigation?.position?.$source || '';
+      if (positionSource.includes('gps')) epfd = 1;
+      else if (positionSource.includes('gnss')) epfd = 1;
+      else if (positionSource.includes('glonass')) epfd = 2;
+      else if (positionSource.includes('galileo')) epfd = 3;
+
+      const destination = vessel.navigation?.destination?.commonName?.value || '';
+      const etaString = vessel.navigation?.courseGreatCircle?.activeRoute?.estimatedTimeOfArrival?.value || '';
+      
+      let etaMonth = 0, etaDay = 0, etaHour = 24, etaMinute = 60;
+      if (etaString && etaString !== '00-00T00:00Z' && etaString !== '00-00T24:60Z') {
+        const etaMatch = etaString.match(/(\d+)-(\d+)T(\d+):(\d+)/);
+        if (etaMatch) {
+          etaMonth = parseInt(etaMatch[1]) || 0;
+          etaDay = parseInt(etaMatch[2]) || 0;
+          etaHour = parseInt(etaMatch[3]) || 24;
+          etaMinute = parseInt(etaMatch[4]) || 60;
+        }
+      }
+      
+      const draughtDecimeters = Math.round(draft * 10);
+      const dte = 0;
+
+      let bits = '';
+      bits += (5).toString(2).padStart(6,'0');
+      bits += (0).toString(2).padStart(2,'0');
+      bits += mmsi.toString(2).padStart(30,'0');
+      bits += aisVersion.toString(2).padStart(2,'0');
+      bits += imo.toString(2).padStart(30,'0');
+      bits += this.callsignToSixBit(vessel.callSign ?? '');
+      bits += this.textToSixBit(vessel.name ?? '', 20);
+      bits += shipType.toString(2).padStart(8,'0');
+      bits += toBow.toString(2).padStart(9,'0');
+      bits += toStern.toString(2).padStart(9,'0');
+      bits += toPort.toString(2).padStart(6,'0');
+      bits += toStarboard.toString(2).padStart(6,'0');
+      bits += epfd.toString(2).padStart(4,'0');
+      bits += etaMonth.toString(2).padStart(4,'0');
+      bits += etaDay.toString(2).padStart(5,'0');
+      bits += etaHour.toString(2).padStart(5,'0');
+      bits += etaMinute.toString(2).padStart(6,'0');
+      bits += draughtDecimeters.toString(2).padStart(8,'0');
+      bits += this.textToSixBit(destination, 20);
+      bits += dte.toString(2);
+      bits += '0';
+
+      return this.bitsToPayload(bits);
+    } catch(err) {
+      console.error('Error creating type5:', err);
+      return null;
+    }
+  }
+
+  static createNMEASentence(payload, fragmentCount=1, fragmentNum=1, messageId=null, channel='B') {
+    const msgId = messageId !== null ? messageId.toString() : '';
+    const fillBits = (6 - (payload.length*6)%6)%6;
+    const sentence = `AIVDM,${fragmentCount},${fragmentNum},${msgId},${channel},${payload},${fillBits}`;
+    const checksum = this.calculateChecksum('!' + sentence);
+    return `!${sentence}*${checksum}`;
+  }
+}
+
+module.exports = AISEncoder;

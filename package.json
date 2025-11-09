@@ -1,0 +1,20 @@
+{
+  "name": "signalk-ais-nmea-converter",
+  "version": "1.0.0",
+  "description": "SignalK plugin to convert AIS data to NMEA 0183 sentences to TCP clients (e.g. Navionics boating app) and optional to vesselfinder.com",
+  "main": "index.js",
+  "keywords": [
+    "signalk-node-server-plugin",
+    "signalk-category-utility",
+    "signalk-category-ais",
+    "signalk-category-hidden"
+  ],
+  "author": "Dirk Behrendt",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/signalk-ais-nmea-converter.git"
+  },
+  "dependencies": {},
+  "signalk-plugin-enabled-by-default": false
+}
