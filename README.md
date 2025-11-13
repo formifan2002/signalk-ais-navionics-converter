@@ -6,7 +6,7 @@ It is intended for vessels that do not have their own AIS receiver on board.
 
 ## Features
 
-- **TCP Server**: Broadcasts NMEA 0183 AIS messages (Type 1 and Type 5) to connected clients
+- **TCP Server**: Broadcasts NMEA 0183 AIS messages ([Type 1 - Position report](https://gpsd.gitlab.io/gpsd/AIVDM.html#_types_1_2_and_3_position_report_class_a) and [Type 5 - static and voyage related data](https://gpsd.gitlab.io/gpsd/AIVDM.html#_type_5_static_and_voyage_related_data)) to connected clients
 - **Smart Update Logic**: 
   - Sends updates immediately when vessel data changes
   - Resends unchanged vessels periodically to prevent timeout in navigation apps
