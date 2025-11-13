@@ -4,6 +4,52 @@ A SignalK plugin that converts AIS vessel data to NMEA 0183 sentences and broadc
 
 It is intended for vessels that do not have their own AIS receiver on board.
 
+## Content
+
+- [Features](#features)
+- [Installation](#installation)
+- [Configuration Parameters](#configuration-parameters)
+  - [Basic Settings](#basic-settings)
+    - [TCP Port](#tcp-port)
+    - [Update Interval for Changed Vessels](#update-interval-for-changed-vessels)
+    - [Update Interval for Unchanged Vessels](#update-interval-for-unchanged-vessels)
+  - [Data Filtering](#data-filtering)
+    - [Skip Vessels Without Callsign](#skip-vessels-without-callsign)
+    - [Skip Vessels With Stale Data](#skip-vessels-with-stale-data)
+    - [Stale Data Threshold](#stale-data-threshold)
+    - [Timestamp Added to Ship Name](#timestamp-added-to-ship-name)
+  - [Speed Over Ground (SOG) Correction](#speed-over-ground-sog-correction)
+    - [Minimum SOG for Alarm](#minimum-sog-for-alarm)
+    - [Maximum Minutes Before SOG Set to Zero](#maximum-minutes-before-sog-set-to-zero)
+  - [VesselFinder Integration](#vesselfinder-integration)
+    - [Enable VesselFinder Forwarding](#enable-vesselfinder-forwarding)
+    - [VesselFinder Host](#vesselfinder-host)
+    - [VesselFinder UDP Port](#vesselfinder-udp-port)
+    - [VesselFinder Update Rate](#vesselfinder-update-rate)
+  - [AISFleet Cloud Integration](#aisfleet-cloud-integration)
+    - [Include Vessels from AISFleetcom](#include-vessels-from-aisfleetcom)
+    - [Radius for Cloud Vessels](#radius-for-cloud-vessels)
+  - [Debug Options](#debug-options)
+    - [Debug All Vessel Details](#debug-all-vessel-details)
+    - [Debug MMSI](#debug-mmsi)
+- [How It Works](#how-it-works)
+  - [Data Flow](#data-flow)
+  - [Merge Logic](#merge-logic)
+  - [Client Connection Handling](#client-connection-handling)
+- [Usage with Navionics Boating App](#usage-with-navionics-boating-app)
+- [Troubleshooting](#troubleshooting)
+  - [No vessels appear in navigation app](#no-vessels-appear-in-navigation-app)
+  - [Vessels disappear after a while](#vessels-disappear-after-a-while)
+  - [False collision warnings](#false-collision-warnings)
+  - [Too manyfew vessels](#too-manyfew-vessels)
+- [Debug Logging](#debug-logging)
+- [Requirements](#requirements)
+- [License](#license)
+- [Author](#author)
+- [Contributing](#contributing)
+- [Changelog](#changelog)
+  - [Version 100](#version-100)
+
 ## Features
 
 - **TCP Server**: Broadcasts NMEA 0183 AIS messages ([Type 1 - Position report](https://gpsd.gitlab.io/gpsd/AIVDM.html#_types_1_2_and_3_position_report_class_a) and [Type 5 - static and voyage related data](https://gpsd.gitlab.io/gpsd/AIVDM.html#_type_5_static_and_voyage_related_data)) to connected clients
@@ -163,10 +209,11 @@ When a new TCP client connects:
 2. In Navionics app:
    - Go to Settings → Connected devices
    - Add new TCP (not UDP) connection
+   - Enter Name for the connection (e.g. SignalkAIS)
    - Enter SignalK server IP address
    - Enter configured TCP port (default: 10113)
-3. Enable connection in Navionics
-4. Vessels should appear on chart immediately
+   - save connection
+3. Vessels should appear on chart immediately and in "connected devices" you should see as status for the connection: "connected" (in green) and "AIS data reception"
 
 ## Troubleshooting
 
