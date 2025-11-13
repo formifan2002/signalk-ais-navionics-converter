@@ -6,7 +6,7 @@ It is intended for vessels that do not have their own AIS receiver on board.
 
 IMPORTANT: The following are required for the plugin to function:
   - a valid GPS position (visible in the SignalK Data Browser) in navigation.position
-  - MMSI of your own vessel maintained in SignalK server setting (Server → Settings)
+  - MMSI of your own vessel maintained in SignalK server settings (Server → Settings)
 
 ## Content
 
@@ -52,7 +52,7 @@ IMPORTANT: The following are required for the plugin to function:
 - [Author](#author)
 - [Contributing](#contributing)
 - [Changelog](#changelog)
-  - [Version 100](#version-100)
+  - [Version 1.0.0](#version-100)
 
 ## Features
 
@@ -211,13 +211,16 @@ When a new TCP client connects:
 
 1. Configure plugin with desired settings
 2. In Navionics app:
-   - Go to Settings → Connected devices
-   - Add new TCP (not UDP) connection
-   - Enter Name for the connection (e.g. SignalkAIS)
-   - Enter SignalK server IP address
-   - Enter configured TCP port (default: 10113)
-   - save connection
-3. Vessels should appear on chart immediately and in "connected devices" you should see as status for the connection: "connected" (in green) and "AIS data reception"
+   - Go to Menu → Connected devices
+     - Add new connection (via + sign in upper right corner)
+     - Enter name for the connection (e.g. SignalkAIS)
+     - Enter SignalK server IP address
+     - Enter configured TCP port (default: 10113 - same setting like in SignalK plugin)
+     - Select TCP (not UDP) 
+     - Save connection
+   - Go to Menu → Chart options → AIS settings 
+     - turn 'Display AIS targets' on
+3. Vessels should appear on chart immediately and in 'Connected devices' you should see as status for the connection: 'connected' (in green) and 'AIS data reception'
 
 ## Troubleshooting
 
