@@ -4,6 +4,10 @@ A SignalK plugin that converts AIS vessel data to NMEA 0183 sentences and broadc
 
 It is intended for vessels that do not have their own AIS receiver on board.
 
+IMPORTANT: The following are required for the plugin to function:
+  - a valid GPS position (visible in the SignalK Data Browser) in navigation.position
+  - MMSI of your own vessel maintained in SignalK server setting (Server → Settings)
+
 ## Content
 
 - [Features](#features)
@@ -79,7 +83,7 @@ npm install signalk-ais-navionics-converter
 
 2. Restart SignalK server
 
-3. Configure the plugin in SignalK admin interface → Plugin Config → AIS to NMEA 0183 converter for TPC clients (e.g. Navionics)
+3. Configure the plugin in SignalK admin interface → Server → Plugin Config → AIS to NMEA 0183 converter for TPC clients (e.g. Navionics)
 
 ## Configuration Parameters
 
