@@ -36,97 +36,80 @@ npm install signalk-ais-navionics-converter
 ### Basic Settings
 
 #### TCP Port
-- **Type**: Number
 - **Default**: 10113
 - **Description**: Port for the NMEA 0183 TCP server. Configure your navigation app (e.g., Navionics) to connect to this port.
 
 #### Update Interval for Changed Vessels
-- **Type**: Number (seconds)
-- **Default**: 15
+- **Default**: 15 (seconds)
 - **Description**: How often to check for and send updates when vessel data changes. Lower values = more real-time updates but higher CPU usage.
 
 #### Update Interval for Unchanged Vessels
-- **Type**: Number (seconds)
-- **Default**: 60
+- **Default**: 60 (seconds)
 - **Description**: How often to resend data for vessels that haven't changed. Important for apps like Navionics to prevent vessels from disappearing. Set to 0 to disable (not recommended).
 
 ### Data Filtering
 
 #### Skip Vessels Without Callsign
-- **Type**: Boolean
 - **Default**: false
 - **Description**: When enabled, vessels without a callsign will not be transmitted.
 
 #### Skip Vessels With Stale Data
-- **Type**: Boolean
 - **Default**: true
 - **Description**: When enabled, vessels with outdated position data will not be transmitted.
 
 #### Stale Data Threshold
-- **Type**: Number (minutes)
-- **Default**: 60
+- **Default**: 60 (minutes)
 - **Description**: Position data older than this threshold will be considered stale and filtered out (if "Skip Vessels With Stale Data" is enabled).
 
 #### Timestamp Added to Ship Name
-- **Type**: Number (minutes, 0=disabled)
-- **Default**: 5
+- **Default**: 5 (minutes, 0=disabled)
 - **Description**: Adds a timestamp suffix to the vessel name if position data is older than specified minutes. Format: `SHIPNAME MIN15`, `SHIPNAME HOUR2`, or `SHIPNAME DAY3`. Vessel names are truncated to 20 characters.
 
 ### Speed Over Ground (SOG) Correction
 
 #### Minimum SOG for Alarm
-- **Type**: Number (m/s)
-- **Default**: 0.2
+- **Default**: 0.2 (m/s)
 - **Description**: SOG values below this threshold will be set to 0. Used by the AIS encoder.
 
 #### Maximum Minutes Before SOG Set to Zero
-- **Type**: Number (minutes, 0=disabled)
-- **Default**: 0
+- **Default**: 0 (minutes, 0=disabled)
 - **Description**: Automatically sets SOG to 0 for vessels whose position timestamp is older than specified minutes. Prevents false collision warnings in navigation apps for vessels with outdated data. Set to 0 to disable this feature.
 
 ### VesselFinder Integration
 
 #### Enable VesselFinder Forwarding
-- **Type**: Boolean
 - **Default**: false
 - **Description**: When enabled, AIS Type 1 messages (position reports) are forwarded to VesselFinder.com via UDP.
 
 #### VesselFinder Host
-- **Type**: String
 - **Default**: ais.vesselfinder.com
 - **Description**: Hostname for VesselFinder UDP server.
 
 #### VesselFinder UDP Port
-- **Type**: Number
 - **Default**: 5500
 - **Description**: UDP port for VesselFinder server.
 
 #### VesselFinder Update Rate
-- **Type**: Number (seconds)
-- **Default**: 60
+- **Default**: 60 (seconds)
 - **Description**: How often to send position updates to VesselFinder.
 
 ### AISFleet Cloud Integration
 
 #### Include Vessels from AISFleet.com
-- **Type**: Boolean
 - **Default**: true
 - **Description**: Fetches nearby vessels from AISFleet.com cloud API and merges them with local SignalK vessel data. Requires internet connection and own position.
 
 #### Radius for Cloud Vessels
-- **Type**: Number (nautical miles)
-- **Default**: 10
+- **Default**: 10 (nm / nautical miles)
 - **Description**: Radius around own vessel position to fetch cloud vessels from AISFleet.com (1-100 nm).
 
 ### Debug Options
 
 #### Debug All Vessel Details
-- **Type**: Boolean
 - **Default**: false
 - **Description**: Enables detailed debug logging for all vessels in the server log. Only visible when plugin is in debug mode. Useful for troubleshooting but generates lots of log data.
 
 #### Debug MMSI
-- **Type**: String
 - **Default**: empty
 - **Description**: MMSI number for detailed debug output of a specific vessel. Only visible when plugin is in debug mode. Leave empty to disable.
 
