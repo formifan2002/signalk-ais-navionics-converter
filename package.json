@@ -6,7 +6,8 @@
   "keywords": [
     "signalk-node-server-plugin",
     "signalk-category-utility",
-    "signalk-category-ais"
+    "signalk-category-ais",
+	"signalk-category-nmea-0183"
   ],
   "author": "Dirk Behrendt",
   "license": "MIT",

@@ -21,6 +21,8 @@ module.exports = function(app) {
   let ownMMSI = null;
   let vesselFinderLastUpdate = 0;
   let signalkApiUrl = null;
+  let cloudVesselsCache = null;
+  let cloudVesselsLastFetch = 0;
 
   plugin.schema = {
     type: 'object',
@@ -143,6 +145,12 @@ module.exports = function(app) {
         description: 'Beside vessels available in SignalK vessels from aisfleet.com will taken into account',
         default: true
       },
+      cloudVesselsUpdateInterval: {
+        type: 'number',
+        title: 'Cloud vessels update interval (seconds)',
+        description: 'How often to fetch vessels from AISFleet.com (default: 60, recommended: 60-300)',
+        default: 60
+      },
       cloudVesselsRadius: {
         type: 'number',
         title: 'Radius (from own vessel) to include vessels from AISFleet.com (nautical miles)',
@@ -199,6 +207,8 @@ module.exports = function(app) {
     
     previousVesselsState.clear();
     lastTCPBroadcast.clear();
+    cloudVesselsCache = null; // ← NEU
+    cloudVesselsLastFetch = 0; // ← NEU
   };
 
   function getOwnMMSI() {
@@ -299,19 +309,26 @@ module.exports = function(app) {
     app.debug(`Map sizes - previousVesselsState: ${previousVesselsState.size}, lastTCPBroadcast: ${lastTCPBroadcast.size}`);
   }
 
-  function fetchFromURL(url) {
+  function fetchVesselsFromAPI() {
     return new Promise((resolve, reject) => {
+      if (!signalkApiUrl) {
+        app.error('signalkApiUrl not initialized yet');
+        resolve(null);
+        return;
+      }
+      
+      const url = `${signalkApiUrl}/vessels`;
       app.debug(`Fetching SignalK vessels from URL: ${url}`);
       
       const http = require('http');
       
       http.get(url, (res) => {
+        app.debug(`HTTP Response Status: ${res.statusCode}`);
         let data = '';
         
-        // Prüfe HTTP Status Code
         if (res.statusCode !== 200) {
           app.error(`HTTP ${res.statusCode} from ${url}`);
-          reject(new Error(`HTTP ${res.statusCode}`));
+          resolve(null); // ← Wichtig: resolve(null) statt reject()
           return;
         }
         
@@ -320,24 +337,22 @@ module.exports = function(app) {
         });
         
         res.on('end', () => {
+          app.debug(`HTTP Response received, length: ${data.length} bytes`);
           try {
             const result = JSON.parse(data);
+            app.debug(`Parsed JSON, ${Object.keys(result).length} vessels from SignalK API`);
             resolve(result);
           } catch (err) {
             app.error(`Invalid JSON from ${url}: ${err.message}`);
             app.error(`Data preview: ${data.substring(0, 200)}`);
-            reject(err);
+            resolve(null); // ← Wichtig: resolve(null) statt reject()
           }
         });
       }).on('error', (err) => {
         app.error(`HTTP request error for ${url}: ${err.message}`);
-        reject(err);
+        resolve(null); // ← Wichtig: resolve(null) statt reject()
       });
     });
-  }
-
-  function fetchVesselsFromAPI() {
-    return fetchFromURL(`${signalkApiUrl}/vessels`);
   }
 
   function fetchCloudVessels(options) {
@@ -694,18 +709,34 @@ module.exports = function(app) {
     return merged;
   }
 
-  function getVessels(options) {
+function getVessels(options) {
+    const now = Date.now();
+    const cloudUpdateInterval = (options.cloudVesselsUpdateInterval || 60) * 1000; // Default 60 Sekunden
+    
+    // Entscheide ob Cloud Vessels neu geholt werden müssen
+    const needsCloudUpdate = options.cloudVesselsEnabled && 
+      (now - cloudVesselsLastFetch >= cloudUpdateInterval);
+    
+    const cloudPromise = needsCloudUpdate 
+      ? fetchCloudVessels(options).then(result => {
+          if (result) {
+            cloudVesselsCache = result;
+            cloudVesselsLastFetch = now;
+          }
+          return cloudVesselsCache;
+        })
+      : Promise.resolve(cloudVesselsCache);
+    
     return Promise.all([
       fetchVesselsFromAPI(),
-      fetchCloudVessels(options)
+      cloudPromise
     ]).then(([signalkVessels, cloudVessels]) => {
       const vessels = [];
       
       // Merge beide Datenquellen
       const allVessels = mergeVesselSources(signalkVessels, cloudVessels, options);
       
-      if (!allVessels) return vessels;
-      
+      if (!allVessels) return vessels;      
       for (const [vesselId, vessel] of Object.entries(allVessels)) {
         if (vesselId === 'self') continue;
         
@@ -897,7 +928,6 @@ module.exports = function(app) {
             if (shouldLogDebug) {
               app.debug(`[${vessel.mmsi}] Type 1: ${sentence1}`);
             }
-            
             if (sendToTCP) {
               broadcastTCP(sentence1);
               sentCount++;
