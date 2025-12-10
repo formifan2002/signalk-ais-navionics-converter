@@ -1,0 +1,27 @@
+# Node modules
+node_modules/
+
+# VS Code settings
+.vscode/
+
+# Lock file (optional, meist nicht nötig im Paket)
+package-lock.json
+
+# Git Dateien
+.gitignore
+
+# NPM Dateien
+.npmignore
+
+# Logfiles
+*.log
+
+# Systemdateien
+.DS_Store
+Thumbs.db
+
+# Tests oder lokale Skripte, falls nicht ins Paket
+Save/
+
+# CI/CD und GitHub-spezifisches
+.github/

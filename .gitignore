@@ -1,0 +1,16 @@
+# Node modules
+node_modules/
+
+# VS Studios
+.vscode/
+
+# Logfiles (optional)
+*.log
+
+# Systemdateien (optional)
+.DS_Store
+Thumbs.db
+
+#Save directory
+Save/nano
+git
