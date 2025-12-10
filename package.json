@@ -34,5 +34,22 @@
   "scripts": {
     "build": "webpack --mode development"
   },
+  "bugs": {
+    "url": "https://github.com/formifan2002/signalk-ais-navionics-converter/issues"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+    "files": [
+    "index.js",
+    "ais-encoder.js",
+    "package.json",
+    "public/",
+    "src/",
+    "webpack.config.js",
+    ".babelrc",
+    "README.md",
+    "LICENSE"
+  ],
   "signalk-plugin-enabled-by-default": false
 }
