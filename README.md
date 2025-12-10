@@ -316,3 +316,7 @@ Issues and pull requests are welcome!
 - VesselFinder.com UDP forwarding
 - Smart filtering and data correction
 - Configurable update intervals
+### Version 1.0.1
+ - enhanced debug logs
+### Version 1.0.2
+ - Changed to "Embedded Plugin Configuration Forms"
