@@ -1,60 +1,26 @@
-name: Publish Package
+name: Publish to npm (Trusted Publisher)
 
 on:
+  workflow_dispatch:   # manuell auslösbar
   push:
     tags:
-      - 'v*'
-
-permissions:
-  id-token: write  # Required for OIDC
-  contents: read
+      - 'v*'           # optional: automatisch bei neuen Versionstags
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write   # wichtig: erlaubt GitHub, ein OIDC-Token für npm zu erzeugen
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 20
           registry-url: 'https://registry.npmjs.org'
 
-      # Ensure npm 11.5.1 or later is installed
-      - name: Update npm
-        run: npm install -g npm@latest
+      - run: npm install -g npm@latest   # sicherstellen, dass npm >= 11.5.1
       - run: npm ci
       - run: npm run build --if-present
-      - run: npm test
-      - run: npm publish
-stages:
-  - test
-  - build
-  - publish
 
-variables:
-  NODE_VERSION: '20'
-
-test:
-  stage: test
-  image: node:${NODE_VERSION}
-  script:
-    - npm ci
-    - npm test
-
-publish:
-  stage: publish
-  image: node:${NODE_VERSION}
-  id_tokens:
-    NPM_ID_TOKEN:
-      aud: "npm:registry.npmjs.org"
-    SIGSTORE_ID_TOKEN:
-      aud: sigstore
-  script:
-    # Ensure npm 11.5.1 or later is installed
-    - npm install -g npm@latest
-    - npm ci
-    - npm run build --if-present
-    - npm publish
-  only:
-    - tags
+      - run: npm publish --access public
