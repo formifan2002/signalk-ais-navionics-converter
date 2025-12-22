@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 const PluginConfigurationPanel = ({ configuration, save }) => {
   const [config, setConfig] = useState(configuration || {});
@@ -8,7 +8,9 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
   const [showDialog, setShowDialog] = useState(false);
   const [dialogData, setDialogData] = useState({ title: '', message: '', callback: null });
   const [ownMMSI, setOwnMMSI] = useState(null);
-
+  const [aisfleetEnabled, setAisfleetEnabled] = useState(false);
+  const [portError, setPortError] = useState('');
+  
   const translations = {
     de: {
       general: 'Allgemein',
@@ -19,6 +21,7 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
       cloudVessels: 'Cloud Vessels (AISFleet)',
       
       tcpPort: 'TCP Port:',
+      wsPort: 'WebSocket Port:',
       updateInterval: 'Update-Intervall für geänderte Schiffe (Sekunden):',
       tcpResendInterval: 'Update-Intervall für unveränderte Schiffe (Sekunden):',
       
@@ -30,8 +33,8 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
       minAlarmSOG: 'Minimale SOG für Alarm (m/s):',
       maxMinutesSOGToZero: 'Maximum Minuten vor SOG auf 0 gesetzt (0=keine Korrektur):',
       
-      logDebugDetails: 'Debug alle Schiff-Details',
-      logMMSI: 'Filter Debug-Ausgabe für MMSI:',
+      logDebugDetails: 'Debug Schiff-Details',
+      logMMSI: 'Filter Debug-Ausgabe nur für MMSI:',
       logDebugStale: 'Debug alte Schiffe',
       logDebugJSON: 'Debug JSON-Daten',
       logDebugAIS: 'Debug AIS-Daten',
@@ -45,6 +48,8 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
       cloudVesselsEnabled: 'Schiffe von AISFleet.com einbeziehen',
       cloudVesselsUpdateInterval: 'Cloud Vessels Update-Intervall (Sekunden):',
       cloudVesselsRadius: 'Radius von eigenem Schiff (Seemeilen):',
+      
+      portError: 'TCP Port und WebSocket Port müssen unterschiedlich sein',
       
       save: 'Speichern',
       cancel: 'Abbruch',
@@ -62,6 +67,7 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
       cloudVessels: 'Cloud Vessels (AISFleet)',
       
       tcpPort: 'TCP Port:',
+      wsPort: 'WebSocket Port:',
       updateInterval: 'Update interval for changed vessels (seconds):',
       tcpResendInterval: 'Update interval for unchanged vessels (seconds):',
       
@@ -73,8 +79,8 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
       minAlarmSOG: 'Minimum SOG for alarm (m/s):',
       maxMinutesSOGToZero: 'Maximum minutes before SOG set to 0 (0=no correction):',
       
-      logDebugDetails: 'Debug all vessel details',
-      logMMSI: 'Filter Debug MMSI:',
+      logDebugDetails: 'Debug vessel details',
+      logMMSI: 'Filter Debug only for MMSI:',
       logDebugStale: 'Debug stale vessels',
       logDebugJSON: 'Debug JSON data',
       logDebugAIS: 'Debug AIS data',
@@ -89,6 +95,8 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
       cloudVesselsUpdateInterval: 'Cloud Vessels update interval (seconds):',
       cloudVesselsRadius: 'Radius from own vessel (nautical miles):',
       
+      portError: 'TCP Port and WebSocket Port must be different',
+      
       save: 'Save',
       cancel: 'Cancel',
       unsavedWarning: 'There are unsaved changes. Really cancel?',
@@ -102,63 +110,78 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
   const t = translations[currentLang];
 
   // Hole eigene MMSI beim Laden
-  React.useEffect(() => {
+  useEffect(() => {
     const fetchOwnMMSI = async () => {
       try {
         const protocol = window.location.protocol;
         const hostname = window.location.hostname;
         const port = window.location.port;
-        const url = `${protocol}//${hostname}${port ? ':' + port : ''}/signalk/v1/api/self`;
-        
-        console.log('Fetching own MMSI from:', url);
-        console.log('Protocol:', protocol, 'Hostname:', hostname, 'Port:', port);
-        
+        const baseUrl = `${protocol}//${hostname}${port ? ':' + port : ''}`;
+        const aisfleetUrl = `${baseUrl}/plugins/aisfleet`;
+        const url = `${baseUrl}/signalk/v1/api/self`;
+
         const response = await fetch(url);
-        console.log('Response status:', response.status);
-        
         if (response.ok) {
           const data = await response.json();
-          console.log('Self data received:', JSON.stringify(data, null, 2));
-          
-          // Data könnte String oder Objekt sein
           let vesselKey = null;
+
           if (typeof data === 'string') {
-            // String Format: "vessels.urn:mrn:imo:mmsi:211177520"
             vesselKey = data.replace('vessels.', '');
-            console.log('Parsed vessel key from string:', vesselKey);
           } else if (data.vessels && typeof data.vessels === 'object') {
-            // Objekt Format
             const mmsiMatch = Object.keys(data.vessels).find(key => key.includes('mmsi:'));
             vesselKey = mmsiMatch;
-            console.log('Found vessel key in object:', vesselKey);
           }
-          
+
           if (vesselKey) {
             const mmsi = vesselKey.match(/mmsi:(\d+)/)?.[1];
-            console.log('Extracted MMSI:', mmsi);
-            if (mmsi) {
-              setOwnMMSI(mmsi);
-            }
+            if (mmsi) setOwnMMSI(mmsi);
           }
-        } else {
-          console.error('Failed to fetch self data, status:', response.status);
+        }
+
+        // AIS Fleet Plugin prüfen
+        try {
+          const aisResponse = await fetch(aisfleetUrl);
+          if (aisResponse.ok) {
+            const aisData = await aisResponse.json();
+            setAisfleetEnabled(!!aisData.enabled);
+          } else {
+            setAisfleetEnabled(false);
+          }
+        } catch (err) {
+          setAisfleetEnabled(false);
         }
       } catch (err) {
         console.error('Failed to fetch own MMSI:', err);
-        // Fehler ignorieren - Validierung wird einfach nicht aktiviert
       }
     };
-    
-    // Verzögert starten um sicherzustellen dass DOM ready ist
+
     setTimeout(fetchOwnMMSI, 500);
   }, []);
 
   const handleConfigChange = (key, value) => {
     setConfig(prev => ({ ...prev, [key]: value }));
+    
+    // Überprüfe Port-Nummern
+    if (key === 'tcpPort' || key === 'wsPort') {
+      const tcpPort = key === 'tcpPort' ? value : config.tcpPort;
+      const wsPort = key === 'wsPort' ? value : config.wsPort;
+      
+      if (tcpPort && wsPort && tcpPort !== 0 && wsPort !== 0 && tcpPort === wsPort) {
+        setPortError(t.portError);
+      } else {
+        setPortError('');
+      }
+    }
   };
 
   const isMMSIInvalid = () => {
     return ownMMSI && config.logMMSI && config.logMMSI === ownMMSI;
+  };
+
+  const isPortInvalid = () => {
+    const tcpPort = config.tcpPort || 10113;
+    const wsPort = config.wsPort || 10114;
+    return tcpPort !== 0 && wsPort !== 0 && tcpPort === wsPort;
   };
 
   const checkUnsavedChanges = () => {
@@ -176,13 +199,22 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
       return;
     }
 
+    // Validiere Ports
+    if (isPortInvalid()) {
+      setStatus('error');
+      const errorMsg = currentLang === 'de' 
+        ? 'Fehler: TCP Port und WebSocket Port müssen unterschiedlich sein!'
+        : 'Error: TCP Port and WebSocket Port must be different!';
+      alert(errorMsg);
+      return;
+    }
+
     setLoading(true);
     if (save) {
       try {
         const result = save(config);
         
         if (result && typeof result.then === 'function') {
-          // save() gibt ein Promise zurück
           result
             .then(() => {
               setStatus('success');
@@ -197,7 +229,6 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
               setLoading(false);
             });
         } else {
-          // save() gibt kein Promise zurück - assume success
           setStatus('success');
           setInitialConfig(config);
           setTimeout(() => setStatus(''), 3000);
@@ -269,8 +300,49 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
             max="65535"
             value={config.tcpPort || 10113}
             onChange={(e) => handleConfigChange('tcpPort', Number(e.target.value))}
-            style={styles.input}
+            style={{
+              ...styles.input,
+              ...(portError ? { borderColor: '#dc3545', backgroundColor: '#fff5f5' } : {})
+            }}
           />
+        </div>
+
+        <div style={styles.formGroup}>
+          <label style={styles.label}>{t.wsPort}</label>
+          <div style={{
+            display: 'block',
+            fontSize: '0.85em',
+            color: '#666',
+            marginTop: '8px',
+            marginBottom: '12px',
+            fontStyle: 'italic',
+            lineHeight: '1.4'
+          }}>
+            {currentLang === 'de' 
+              ? 'Über diesen Port werden alle AIS Daten als NMEA0183 und alle Schiffsdaten per JOSN  als Websocket gesendet (nicht für Navionics relevant). 0=kein Websocket Server.'
+              : 'This port is used to send all AIS data as NMEA0183 and all vessel data as JSON via Websocket (not relevant for Navionics). 0=no Websocket server.'}
+          </div>
+          <input
+            type="number"
+            min="0"
+            max="65535"
+            value={config.wsPort || 10114}
+            onChange={(e) => handleConfigChange('wsPort', Number(e.target.value))}
+            style={{
+              ...styles.input,
+              ...(portError ? { borderColor: '#dc3545', backgroundColor: '#fff5f5' } : {})
+            }}
+          />
+          {portError && (
+            <div style={{
+              color: '#dc3545',
+              fontSize: '0.85em',
+              marginTop: '8px',
+              fontWeight: '500'
+            }}>
+              ⚠️ {portError}
+            </div>
+          )}
         </div>
 
         <div style={styles.formGroup}>
@@ -420,8 +492,8 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
                   fontWeight: '500'
                 }}>
                   {currentLang === 'de' 
-                    ? '❌ Sie können nicht die eigene MMSI verwenden!'
-                    : '❌ You cannot use your own MMSI!'}
+                    ? '⚠️ Sie können nicht die eigene MMSI verwenden!'
+                    : '⚠️ You cannot use your own MMSI!'}
                 </div>
               )}
             </div>
@@ -527,46 +599,48 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
       </div>
 
       {/* Cloud Vessels */}
-      <div style={styles.section}>
-        <h3 style={styles.sectionTitle}>{t.cloudVessels}</h3>
+      {!aisfleetEnabled && (
+        <div style={styles.section}>
+          <h3 style={styles.sectionTitle}>{t.cloudVessels}</h3>
 
-        <div style={styles.formGroup}>
-          <label style={styles.checkbox}>
-            <input
-              type="checkbox"
-              checked={config.cloudVesselsEnabled !== false}
-              onChange={(e) => handleConfigChange('cloudVesselsEnabled', e.target.checked)}
-            />
-            {t.cloudVesselsEnabled}
-          </label>
+          <div style={styles.formGroup}>
+            <label style={styles.checkbox}>
+              <input
+                type="checkbox"
+                checked={config.cloudVesselsEnabled !== false}
+                onChange={(e) => handleConfigChange('cloudVesselsEnabled', e.target.checked)}
+              />
+              {t.cloudVesselsEnabled}
+            </label>
+          </div>
+
+          {config.cloudVesselsEnabled !== false && (
+            <>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>{t.cloudVesselsUpdateInterval}</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={config.cloudVesselsUpdateInterval || 60}
+                  onChange={(e) => handleConfigChange('cloudVesselsUpdateInterval', Number(e.target.value))}
+                  style={styles.input}
+                />
+              </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>{t.cloudVesselsRadius}</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={config.cloudVesselsRadius || 10}
+                  onChange={(e) => handleConfigChange('cloudVesselsRadius', Number(e.target.value))}
+                  style={styles.input}
+                />
+              </div>
+            </>
+          )}
         </div>
-
-        {config.cloudVesselsEnabled !== false && (
-          <>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>{t.cloudVesselsUpdateInterval}</label>
-              <input
-                type="number"
-                min="1"
-                value={config.cloudVesselsUpdateInterval || 60}
-                onChange={(e) => handleConfigChange('cloudVesselsUpdateInterval', Number(e.target.value))}
-                style={styles.input}
-              />
-            </div>
-
-            <div style={styles.formGroup}>
-              <label style={styles.label}>{t.cloudVesselsRadius}</label>
-              <input
-                type="number"
-                min="1"
-                value={config.cloudVesselsRadius || 10}
-                onChange={(e) => handleConfigChange('cloudVesselsRadius', Number(e.target.value))}
-                style={styles.input}
-              />
-            </div>
-          </>
-        )}
-      </div>
+      )}
 
       {status && (
         <div style={{...styles.statusMessage, ...(status === 'error' ? styles.error : styles.success)}}>
@@ -579,8 +653,12 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
       <div style={styles.buttonGroup}>
         <button
           onClick={handleSave}
-          disabled={loading || isMMSIInvalid()}
-          style={{...styles.button, ...styles.primaryButton, ...(isMMSIInvalid() ? { opacity: 0.5, cursor: 'not-allowed' } : {})}}
+          disabled={loading || isMMSIInvalid() || isPortInvalid()}
+          style={{
+            ...styles.button, 
+            ...styles.primaryButton, 
+            ...((isMMSIInvalid() || isPortInvalid()) ? { opacity: 0.5, cursor: 'not-allowed' } : {})
+          }}
         >
           {t.save}
         </button>

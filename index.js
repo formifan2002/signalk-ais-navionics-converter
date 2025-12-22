@@ -2,6 +2,7 @@ const net = require('net');
 const dgram = require('dgram');
 const axios = require('axios');
 const AISEncoder = require('./ais-encoder');
+const WebSocket = require('ws');
 
 module.exports = function(app) {
   let plugin = {
@@ -12,17 +13,21 @@ module.exports = function(app) {
 
   let tcpServer = null;
   let udpClient = null;
+  let wsServer = null;
   let updateInterval = null;
   let tcpClients = [];
-  let newClients = [];
+  let newTcpClients = [];
+  let newWSClients = [];
   let previousVesselsState = new Map();
   let lastTCPBroadcast = new Map();
   let messageIdCounter = 0;
   let ownMMSI = null;
   let vesselFinderLastUpdate = 0;
   let signalkApiUrl = null;
+  let signalkAisfleetUrl = null;
   let cloudVesselsCache = null;
   let cloudVesselsLastFetch = 0;
+  let aisfleetEnabled= false;
 
   plugin.schema = {
     type: 'object',
@@ -33,6 +38,12 @@ module.exports = function(app) {
         title: 'TCP Port',
         description: 'Port for NMEA TCP server',
         default: 10113
+      },
+      wsPort: { 
+        type: 'number',
+        title: 'WebSocket Port for AIS and last position timestamp data',
+        description: 'Port for WebSocket server (web clients can connect here)',
+        default: 10114
       },
       updateInterval: {
         type: 'number',
@@ -84,14 +95,14 @@ module.exports = function(app) {
       },      
       logDebugDetails: {
         type: 'boolean',
-        title: 'Debug all vessel details',
+        title: 'Debug vessel details',
         description: 'Detailed debug output in server log for all vessels - only visible if plugin is in debug mode',
         default: false
       },
       logMMSI: {
         type: 'string',
-        title: 'Debug MMSI',
-        description: 'MMSI for detailed debug output in server log - only visible if plugin is in debug mode',
+        title: 'Debug only MMSI',
+        description: 'Only data for this MMSI will be shown in the detailed debug output in server log - only visible if plugin is in debug mode. Must be different from own MMSI.',
         default: ''
       },
       logDebugStale: {
@@ -173,12 +184,15 @@ module.exports = function(app) {
       if (hostname === '0.0.0.0' || hostname === '::') {
         hostname = '127.0.0.1';
       }
-      
+      signalkAisfleetUrl= `http://${hostname}:${port}/signalk/plugins/aisfleet/config`;
       signalkApiUrl = `http://${hostname}:${port}/signalk/v1/api`;
 
       // Hole eigene MMSI
       getOwnMMSI().then(() => {
         startTCPServer(options);
+        if (options.wsPort && options.wsPort > 0){
+          startWebSocketServer(options);
+        }
         startUpdateLoop(options);
 
         if (options.vesselFinderEnabled && options.vesselFinderHost) {
@@ -199,7 +213,12 @@ module.exports = function(app) {
       tcpServer.close();
       tcpServer = null;
     }
-    
+    if (wsServer) {
+      wsServer.clients.forEach(client => client.terminate());
+      newWSClients = [];
+      wsServer.close();
+      wsServer = null;
+    }
     if (udpClient) {
       udpClient.close();
       udpClient = null;
@@ -231,25 +250,83 @@ module.exports = function(app) {
     tcpServer = net.createServer((socket) => {
       app.debug(`TCP client connected: ${socket.remoteAddress}:${socket.remotePort}`);
       tcpClients.push(socket);
-      newClients.push(socket);
+      newTcpClients.push(socket);
 
       socket.on('end', () => {
         app.debug(`TCP client disconnected`);
         tcpClients = tcpClients.filter(c => c !== socket);
-        newClients = newClients.filter(c => c !== socket);
+        newTcpClients = newTcpClients.filter(c => c !== socket);
       });
 
       socket.on('error', (err) => {
         app.error(`TCP socket error: ${err}`);
         tcpClients = tcpClients.filter(c => c !== socket);
-        newClients = newClients.filter(c => c !== socket);
+        newTcpClients = newTcpClients.filter(c => c !== socket);
       });
     });
 
     tcpServer.listen(options.tcpPort, () => {
-      app.debug(`NMEA TCP Server listening on port ${options.tcpPort}`);
-      app.setPluginStatus(`TCP Server running on port ${options.tcpPort}`);
+      const statusText= `TCP Server running on port ${options.tcpPort}` + (options.wsPort && options.wsPort > 0 ? ` - WS server on port ${options.wsPort}` : '');
+      app.debug(statusText);
+      app.setPluginStatus(statusText);
     });
+  }
+
+  function startWebSocketServer(options) {
+  const wsPort = options.wsPort || 10114;
+  
+  try {
+    wsServer = new WebSocket.Server({ port: wsPort });
+    
+    wsServer.on('listening', () => {
+      app.debug(`AIS WebSocket Server listening on port ${wsPort}`);
+    });
+    
+    wsServer.on('connection', (ws, req) => {
+      const clientIP = req.socket.remoteAddress;
+      app.debug(`WebSocket client connected from ${clientIP}`);
+      newWSClients.push(ws);
+      setTimeout(() => {
+        processVessels(options, 'New WebSocket Client connected');
+      }, 100);
+      ws.isAlive = true;
+      ws.on('pong', () => {
+        ws.isAlive = true;
+      });
+      
+      ws.on('close', () => {
+        newWSClients = newWSClients.filter(c => c !== ws);
+        app.debug(`WebSocket client disconnected`);
+      });
+      
+      ws.on('error', (err) => {
+        newWSClients = newWSClients.filter(c => c !== ws);
+        app.error(`WebSocket client error: ${err.message}`);
+      });
+    });
+    
+    // Heartbeat interval (prüft alle 30 Sekunden ob Clients noch verbunden sind)
+    const heartbeat = setInterval(() => {
+      wsServer.clients.forEach((ws) => {
+        if (ws.isAlive === false) {
+          return ws.terminate();
+        }
+        ws.isAlive = false;
+        ws.ping();
+      });
+    }, 30000);
+    
+    wsServer.on('close', () => {
+      clearInterval(heartbeat);
+    });
+    
+    wsServer.on('error', (err) => {
+      app.error(`WebSocket Server error: ${err.message}`);
+    });
+    
+  } catch (err) {
+    app.error(`Failed to start WebSocket Server: ${err.message}`);
+  }
   }
 
   function startVesselFinderForwarding(options) {
@@ -263,6 +340,20 @@ module.exports = function(app) {
         client.write(message + '\r\n');
       } catch (err) {
         app.error(`Error broadcasting to TCP client: ${err}`);
+      }
+    });
+  }
+
+  function broadcastWebSocket(message) {
+    if (!wsServer) return;
+    
+    wsServer.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        try {
+          client.send(message);
+        } catch (err) {
+          app.error(`Error broadcasting to WebSocket client: ${err}`);
+        }
       }
     });
   }
@@ -284,29 +375,13 @@ module.exports = function(app) {
 
   function startUpdateLoop(options) {
     // Initiales Update
-    processVessels(options, 'Startup');
+    processVessels(options, 'Inital startup');
     
     // Regelmäßige Updates
     updateInterval = setInterval(() => {
-      processVessels(options, 'Scheduled');
+      processVessels(options, 'Scheduled resend');
     }, options.updateInterval * 1000);
-    
-    // Memory-Monitoring alle 5 Minuten wenn Debug aktiv
-    if (options.logDebugDetails) {
-      setInterval(() => {
-        logMemoryUsage();
-      }, 5 * 60 * 1000);
-    }
-  }
-  
-  function logMemoryUsage() {
-    const usage = process.memoryUsage();
-    app.debug('=== Memory Usage ===');
-    app.debug(`RSS: ${(usage.rss / 1024 / 1024).toFixed(2)} MB`);
-    app.debug(`Heap Used: ${(usage.heapUsed / 1024 / 1024).toFixed(2)} MB`);
-    app.debug(`Heap Total: ${(usage.heapTotal / 1024 / 1024).toFixed(2)} MB`);
-    app.debug(`External: ${(usage.external / 1024 / 1024).toFixed(2)} MB`);
-    app.debug(`Map sizes - previousVesselsState: ${previousVesselsState.size}, lastTCPBroadcast: ${lastTCPBroadcast.size}`);
+   
   }
 
   function fetchVesselsFromAPI() {
@@ -323,7 +398,6 @@ module.exports = function(app) {
       const http = require('http');
       
       http.get(url, (res) => {
-        app.debug(`HTTP Response Status: ${res.statusCode}`);
         let data = '';
         
         if (res.statusCode !== 200) {
@@ -337,7 +411,6 @@ module.exports = function(app) {
         });
         
         res.on('end', () => {
-          app.debug(`HTTP Response received, length: ${data.length} bytes`);
           try {
             const result = JSON.parse(data);
             app.debug(`Parsed JSON, ${Object.keys(result).length} vessels from SignalK API`);
@@ -345,12 +418,12 @@ module.exports = function(app) {
           } catch (err) {
             app.error(`Invalid JSON from ${url}: ${err.message}`);
             app.error(`Data preview: ${data.substring(0, 200)}`);
-            resolve(null); // ← Wichtig: resolve(null) statt reject()
+            resolve(null); 
           }
         });
       }).on('error', (err) => {
         app.error(`HTTP request error for ${url}: ${err.message}`);
-        resolve(null); // ← Wichtig: resolve(null) statt reject()
+        resolve(null); 
       });
     });
   }
@@ -378,7 +451,7 @@ module.exports = function(app) {
       }
       
       const url = `https://aisfleet.com/api/vessels/nearby?lat=${lat}&lng=${lng}&radius=${radius}&mmsi=${ownMMSI}`;
-      app.debug(`Fetching cloud vessels from AISFleet API (radius: ${radius}nm)`);
+      app.debug(`Fetching cloud vessels from AISFleet API (radius: ${radius}nm) - URL: ${url}`);
       
       const requestConfig = {
         method: 'get',
@@ -393,8 +466,6 @@ module.exports = function(app) {
       return axios.request(requestConfig)
         .then(response => {
           const duration = Date.now() - startTime;
-          app.debug(`AISFleet API response time: ${duration}ms`);
-          
           if (duration > 10000) {
             app.error(`AISFleet API slow response: ${duration}ms - consider reducing radius`);
           }
@@ -571,8 +642,8 @@ module.exports = function(app) {
     // Spezialbehandlung für name und callsign: Gefüllte Werte haben immer Vorrang
     const vessel1Name = vessel1.name;
     const vessel2Name = vessel2.name;
-    const vessel1Callsign = vessel1.communication?.callsignVhf || vessel1.callsign || vessel1.callSign;
-    const vessel2Callsign = vessel2.communication?.callsignVhf || vessel2.callsign || vessel2.callSign;
+    const vessel1Callsign = vessel1.communication?.callsignVhf || vessel1.callsign;
+    const vessel2Callsign = vessel2.communication?.callsignVhf || vessel2.callsign;
     
     // Name: Bevorzuge gefüllte Werte über "Unknown" oder leere Werte
     if (vessel2Name && vessel2Name !== 'Unknown' && vessel2Name !== '') {
@@ -588,7 +659,6 @@ module.exports = function(app) {
         merged.communication.callsignVhf = vessel2Callsign;
         // Setze auch die anderen Varianten
         merged.callsign = vessel2Callsign;
-        merged.callSign = vessel2Callsign;
       }
     }
     
@@ -642,7 +712,8 @@ module.exports = function(app) {
 
   function mergeVesselSources(signalkVessels, cloudVessels, options) {
     const merged = {};
-    
+    const loggedVessels = new Set();
+
     app.debug(`Merging vessels - SignalK: ${signalkVessels ? Object.keys(signalkVessels).length : 0}, Cloud: ${cloudVessels ? Object.keys(cloudVessels).length : 0}`);
     
     // Füge alle SignalK Vessels hinzu
@@ -658,27 +729,24 @@ module.exports = function(app) {
         const mmsiMatch = vesselId.match(/mmsi:(\d+)/);
         const mmsi = mmsiMatch ? mmsiMatch[1] : null;
         const logMMSI = options.logMMSI || '';
-        const shouldLog = options.logDebugDetails || (logMMSI && logMMSI !== '' && mmsi === logMMSI);
-        
+        const shouldLog = options.logDebugJSON && options.logDebugDetails && (mmsi === "" || mmsi === logMMSI)
         if (merged[vesselId]) {
           // Vessel existiert in beiden Quellen - merge mit Timestamp-Vergleich
           merged[vesselId] = mergeVesselData(merged[vesselId], cloudVessel);
           
           if (shouldLog) {
-            // app.debug(`Merged vessel ${vesselId} (${mmsi}):`);
-			if ((options.logDebugJSON && options.logDebugDetails) || (logMMSI && logMMSI !== '' && mmsi === logMMSI)){			
-				app.debug(JSON.stringify(merged[vesselId], null, 2));
-			}
+            app.debug(`Merged vessel ${vesselId} (${mmsi}):`);
+            app.debug(JSON.stringify(merged[vesselId], null, 2));
+            loggedVessels.add(vesselId);
           }
         } else {
           // Vessel nur in Cloud - direkt hinzufügen
           merged[vesselId] = cloudVessel;
           
           if (shouldLog) {
-            // app.debug(`Cloud-only vessel ${vesselId} (${mmsi}):`);
-			if ((options.logDebugJSON && options.logDebugDetails) || (logMMSI && logMMSI !== '' && mmsi === logMMSI)){			
-				app.debug(JSON.stringify(cloudVessel, null, 2));
-			}
+            app.debug(`Cloud-only vessel ${vesselId} (${mmsi}):`);
+            app.debug(JSON.stringify(cloudVessel, null, 2));
+            loggedVessels.add(vesselId);
           }
           if (merged[vesselId].name && merged[vesselId].navigation.position.timestamp && options.staleDataShipnameAddTime > 0) {
             const timestamp = new Date(merged[vesselId].navigation.position.timestamp); // UTC-Zeit
@@ -704,19 +772,36 @@ module.exports = function(app) {
         }
       }
     }
-    
+    if (options.logDebugJSON && options.logDebugDetails) {
+      for (const [vesselId, vessel] of Object.entries(merged)) {
+
+        // MMSI extrahieren
+        const mmsiMatch = vesselId.match(/mmsi:(\d+)/);
+        const mmsi = mmsiMatch ? mmsiMatch[1] : null;
+
+        // Wenn ein MMSI-Filter gesetzt ist → nur dieses MMSI loggen
+        if (options.logMMSI && options.logMMSI !== "" && mmsi !== options.logMMSI) {
+          continue;
+        }
+
+        // Nur loggen, wenn dieses Vessel NICHT bereits geloggt wurde
+        if (!loggedVessels.has(vesselId)) {
+          app.debug(`SignalK-only vessel ${vesselId} (${mmsi}):`);
+          app.debug(JSON.stringify(vessel, null, 2));
+        }
+      }
+    }
     app.debug(`Total merged vessels: ${Object.keys(merged).length}`);
     return merged;
   }
 
-function getVessels(options) {
+function getVessels(options,aisfleetEnabled) {
     const now = Date.now();
     const cloudUpdateInterval = (options.cloudVesselsUpdateInterval || 60) * 1000; // Default 60 Sekunden
     
     // Entscheide ob Cloud Vessels neu geholt werden müssen
-    const needsCloudUpdate = options.cloudVesselsEnabled && 
+    const needsCloudUpdate = options.cloudVesselsEnabled && !aisfleetEnabled && 
       (now - cloudVesselsLastFetch >= cloudUpdateInterval);
-    
     const cloudPromise = needsCloudUpdate 
       ? fetchCloudVessels(options).then(result => {
           if (result) {
@@ -733,8 +818,8 @@ function getVessels(options) {
     ]).then(([signalkVessels, cloudVessels]) => {
       const vessels = [];
       
-      // Merge beide Datenquellen
-      const allVessels = mergeVesselSources(signalkVessels, cloudVessels, options);
+      // Merge beide Datenquellen (falls aisfleet plugin nicht aktiviert ist)
+      const allVessels = !aisfleetEnabled ? mergeVesselSources(signalkVessels, cloudVessels, options) : signalkVessels;
       
       if (!allVessels) return vessels;      
       for (const [vesselId, vessel] of Object.entries(allVessels)) {
@@ -746,6 +831,32 @@ function getVessels(options) {
         const mmsi = mmsiMatch[1];
         if (ownMMSI && mmsi === ownMMSI) continue;
         
+        // IMO-Extraktion verbessert - prüfe mehrere Quellen und filtere ungültige Werte
+        let imo = null;
+        
+        // Prüfe vessel.registrations.imo zuerst (häufigste SignalK-Struktur)
+        if (vessel.registrations?.imo) {
+          const imoStr = vessel.registrations.imo.toString().replace(/[^\d]/g, '');
+          const imoNum = parseInt(imoStr);
+          if (imoNum && imoNum > 0) {
+            imo = imoNum;
+          }
+        }
+        
+        // Falls nicht gefunden, prüfe vessel.imo
+        if (!imo && vessel.imo) {
+          const imoStr = vessel.imo.toString().replace(/[^\d]/g, '');
+          const imoNum = parseInt(imoStr);
+          if (imoNum && imoNum > 0) {
+            imo = imoNum;
+          }
+        }
+        
+        // Fallback auf 0 wenn nichts gefunden
+        if (!imo) {
+          imo = 0;
+        }
+        
         vessels.push({
           mmsi: mmsi,
           name: vessel.name || 'Unknown',
@@ -754,7 +865,7 @@ function getVessels(options) {
           design: vessel.design || {},
           sensors: vessel.sensors || {},
           destination: vessel.navigation?.destination?.commonName?.value || null,
-          imo: vessel.imo || vessel.registrations?.imo || '0'
+          imo: imo
         });
       }
       
@@ -768,13 +879,28 @@ function getVessels(options) {
   function filterVessels(vessels, options) {
     const now = new Date();
     const filtered = [];
-    
+    let countStale = 0;
+    let countNoCallsign = 0;
+    let countInvalidMMSI = 0;
+    let countInvalidNameAndMMSI = 0;
+    let countBaseStations = 0;
     for (const vessel of vessels) {
-      let callSign = vessel.callsign || '';
-      const hasRealCallsign = callSign && callSign.length > 0;
+      if (vessel?.sensors?.ais?.class?.meta?.value === "BASE") {
+        countBaseStations++;
+        continue; // Überspringe Basisstationen
+      }
+      if (!vessel.mmsi || vessel.mmsi.length !== 9 || isNaN(parseInt(vessel.mmsi))) {
+        if (options.logDebugDetails && (!options.logMMSI || vessel.mmsi === options.logMMSI)) {
+          app.debug(`Skipped (invalid MMSI): ${vessel.mmsi} ${vessel.name}`);
+        }
+        countInvalidMMSI++;
+        continue;
+      }
+      let callsign = vessel.callsign || '';
+      const hasRealCallsign = callsign && callsign.length > 0;
       
       if (!hasRealCallsign) {
-        callSign = 'UNKNOWN';
+        callsign = 'UNKNOWN';
       }
       
       // Hole Position Timestamp für mehrere Checks
@@ -802,9 +928,10 @@ function getVessels(options) {
           if (hours > 0) ageStr += `${hours}h `;
           if (minutes > 0) ageStr += `${minutes}m`;
           
-          if ((options.logDebugDetails && options.logDebugStale) || (options.logMMSI && vessel.mmsi === options.logMMSI)) {
+          if (options.logDebugDetails && options.logDebugStale &&  (!options.logMMSI || vessel.mmsi === options.logMMSI)) {
             app.debug(`Skipped (stale): ${vessel.mmsi} ${vessel.name} - ${ageStr.trim()} ago`);
           }
+          countStale++;
           continue;
         }
       }
@@ -831,32 +958,66 @@ function getVessels(options) {
             } else {
               vessel.navigation.speedOverGround = 0;
             }
-            
-            if ((options.logDebugDetails && options.logDebugSOG) || (options.logMMSI && vessel.mmsi === options.logMMSI)) {
+
+            if (options.logDebugDetails && options.logDebugSOG && (!options.logMMSI || vessel.mmsi === options.logMMSI)) {
               const ageMinutes = Math.floor(ageMs / 60000)
               app.debug(`SOG corrected to 0 for ${vessel.mmsi} ${vessel.name} - position age: ${ageMinutes}min (was: ${originalSOG.toFixed(2)} m/s)`);
             }
           }
         }
       }
-      
+
+     // Filtere Schiffe ohne Name und Callsign aus
+      const hasValidName = vessel.name && vessel.name.toLowerCase() !== 'unknown';
+      if (!hasValidName && !hasRealCallsign){
+        if (options.logDebugDetails && (!options.logMMSI || vessel.mmsi === options.logMMSI)) {
+          app.debug(`Skipped (no valid name and no valid callsign): ${vessel.mmsi} - Name: "${vessel.name}", Callsign: "${vessel.callsign}"`);
+        }
+        countInvalidNameAndMMSI++;
+        continue ;
+      }
       // Callsign check
-      if (options.skipWithoutCallsign && !hasRealCallsign) {
-        if (options.logDebugDetails || (!options.logMMSI || vessel.mmsi === options.logMMSI)) {
+      if (options.skipWithoutCallsign && !hasRealCallsign ){
+        if (options.logDebugDetails && (!options.logMMSI || vessel.mmsi === options.logMMSI)) {
           app.debug(`Skipped (no callsign): ${vessel.mmsi} ${vessel.name}`);
         }
+        countNoCallsign++;
         continue;
-      }
-      
-      vessel.callSign = callSign;
+      }      
+      vessel.callsign = callsign;
       filtered.push(vessel);
     }
-    
+    const countFiltered = countStale + countNoCallsign + countInvalidMMSI + countInvalidNameAndMMSI+countBaseStations;
+    (countFiltered > 0) &&
+    app.debug(
+      `Remaining vessels after filtering: ${filtered.length} (Skipped: ${
+        [
+          `Total: ${countFiltered}`,
+          countStale > 0 ? `Stale: ${countStale}` : "",
+          countNoCallsign > 0 ? `No Callsign: ${countNoCallsign}` : "",
+          countBaseStations > 0 ? `Base Stations: ${countBaseStations}` : "",
+          countInvalidMMSI > 0 ? `Invalid MMSI: ${countInvalidMMSI}` : "",
+          countInvalidNameAndMMSI > 0 ? `No Name & Callsign: ${countInvalidNameAndMMSI}` : ""
+        ].filter(Boolean).join(", ")
+      })`
+    );
     return filtered;
   }
 
-  function processVessels(options, reason) {
-    getVessels(options).then(vessels => {
+  async function processVessels(options, reason) {
+  try {
+    // Prüfen ob AIS Fleet Plugin installiert/aktiviert ist
+    let aisfleetEnabled = false;
+    try {
+      const aisResponse = await fetch(signalkAisfleetUrl);
+      if (aisResponse.ok) {
+        const aisData = await aisResponse.json();
+        aisfleetEnabled = !!aisData.enabled;
+      }
+    } catch (err) {
+      app.debug("AIS Fleet plugin not installed or unreachable:", err);
+    }
+    getVessels(options,aisfleetEnabled).then(vessels => {
       try {
         const filtered = filterVessels(vessels, options);
         
@@ -867,7 +1028,7 @@ function getVessels(options) {
         cleanupMaps(currentMMSIs, options);
         
         messageIdCounter = (messageIdCounter + 1) % 10;
-        const hasNewClients = newClients.length > 0;
+        const hasNewClients = newTcpClients.length > 0 || newWSClients.length > 0;
         const nowTimestamp = Date.now();
         const vesselFinderUpdateDue = options.vesselFinderEnabled && 
           (nowTimestamp - vesselFinderLastUpdate) >= (options.vesselFinderUpdateRate * 1000);
@@ -884,7 +1045,7 @@ function getVessels(options) {
             headingTrue: vessel.navigation?.headingTrue,
             state: vessel.navigation?.state,
             name: vessel.name,
-            callSign: vessel.callSign
+            callsign: vessel.callsign
           });
           
           const previousState = previousVesselsState.get(vessel.mmsi);
@@ -900,39 +1061,36 @@ function getVessels(options) {
             return;
           }
           
-          // Filtere Schiffe ohne Name und Callsign aus
-          const hasValidName = vessel.name && vessel.name.toLowerCase() !== 'unknown';
-          const hasValidCallsign = vessel.callSign && vessel.callSign.toLowerCase() !== 'unknown' && vessel.callSign !== '';
-          
-          if (!hasValidName && !hasValidCallsign) {
-            if (options.logDebugDetails || (!options.logMMSI || vessel.mmsi === options.logMMSI)) {
-              app.debug(`Skipped (no valid name and no valid callsign): ${vessel.mmsi} - Name: "${vessel.name}", Callsign: "${vessel.callSign}"`);
-            }
-            unchangedCount++;
-            return;
-          }
-          
           previousVesselsState.set(vessel.mmsi, currentState);
           
           // Bestimme ob an TCP gesendet werden soll
           const sendToTCP = hasChanged || needsTCPResend;
           
           // Debug-Logging für spezifische MMSI
-          const shouldLogDebug = (options.logDebugDetails && options.logDebugAIS) || (options.logMMSI && vessel.mmsi === options.logMMSI);
-          
-          // Type 1
-          const payload1 = AISEncoder.createPositionReport(vessel, options);
-          if (payload1) {
-            const sentence1 = AISEncoder.createNMEASentence(payload1, 1, 1, messageIdCounter, 'B');
+          const shouldLogDebug = options.logDebugDetails && options.logDebugAIS && (!options.logMMSI || vessel.mmsi === options.logMMSI);
+
+          // AIS-Klasse aus Vessel lesen
+          const aisClass = vessel?.sensors?.ais?.class?.value;
+          // Standard: Class A (Type 1), wenn nichts gesetzt ist
+          const isClassA = !aisClass || aisClass.trim() === '' || aisClass.toUpperCase() === 'A';
+          // Payload je nach Klasse erzeugen
+          const payload = isClassA
+            ? AISEncoder.createPositionReportType1(vessel, options)
+            : AISEncoder.createPositionReportType19(vessel, options);
+            if (payload) {
+            const sentence = AISEncoder.createNMEASentence(payload, 1, 1, messageIdCounter, 'B');
             
             if (shouldLogDebug) {
-              app.debug(`[${vessel.mmsi}] Type 1: ${sentence1}`);
+              app.debug(`MMSI ${vessel.mmsi} - Type ${isClassA?'1':'19'}: ${sentence}`);
             }
             if (sendToTCP) {
-              broadcastTCP(sentence1);
-              sentCount++;
-              lastTCPBroadcast.set(vessel.mmsi, nowTimestamp);
-            }
+                broadcastTCP(sentence);
+                broadcastWebSocket(sentence);
+                // Zusätzliche Übertragung des kompletten Vessel object
+                broadcastWebSocket(JSON.stringify(vessel));
+                sentCount++;
+                lastTCPBroadcast.set(vessel.mmsi, nowTimestamp);
+              }
             
             // VesselFinder: nur Type 1 Nachrichten und nur wenn Position nicht älter als 5 Minuten
             if (vesselFinderUpdateDue) {
@@ -946,7 +1104,7 @@ function getVessels(options) {
                 const fiveMinutes = 5 * 60 * 1000;
                 
                 if (posAge <= fiveMinutes) {
-                  sendToVesselFinder(sentence1, options);
+                  sendToVesselFinder(sentence, options);
                   vesselFinderCount++;
                 } else if (shouldLogDebug) {
                   app.debug(`[${vessel.mmsi}] Skipped VesselFinder (position age: ${Math.floor(posAge/60000)}min)`);
@@ -955,46 +1113,73 @@ function getVessels(options) {
             }
           }
           
-          // Type 5 - nur an TCP Clients, NICHT an VesselFinder
-          const shouldSendType5 = vessel.callSign && vessel.callSign.length > 0 && 
-                                  (vessel.callSign !== 'UNKNOWN' || !options.skipWithoutCallsign);
+          // Type 5 (Class A) bzw. Type 24 (Class B) - nur an TCP Clients, NICHT an VesselFinder
+          const shouldSendStaticVoyage = vessel.callsign && vessel.callsign.length > 0 && 
+                                  (vessel.callsign.toLowerCase() !== 'unknown' || !options.skipWithoutCallsign);
           
-          if (shouldSendType5 && sendToTCP) {
-            const payload5 = AISEncoder.createStaticVoyage(vessel);
-            if (payload5) {
-              if (payload5.length <= 62) {
-                const sentence5 = AISEncoder.createNMEASentence(payload5, 1, 1, messageIdCounter, 'B');
-                
-                if (shouldLogDebug) {
-                  app.debug(`[${vessel.mmsi}] Type 5: ${sentence5}`);
+          if (shouldSendStaticVoyage && sendToTCP) {
+              if (isClassA) {
+                // --- Class A: Type 5 ---
+                const payload5 = AISEncoder.createStaticVoyage(vessel);
+                if (payload5) {
+                  if (payload5.length <= 62) {
+                    const sentence5 = AISEncoder.createNMEASentence(payload5, 1, 1, messageIdCounter, 'B');
+                    if (shouldLogDebug) {
+                      app.debug(`[${vessel.mmsi}] Type 5: ${sentence5}`);
+                    }
+                    broadcastTCP(sentence5);
+                    broadcastWebSocket(sentence5);
+                  } else {
+                    const fragment1 = payload5.substring(0, 62);
+                    const fragment2 = payload5.substring(62);
+                    const sentence5_1 = AISEncoder.createNMEASentence(fragment1, 2, 1, messageIdCounter, 'B');
+                    const sentence5_2 = AISEncoder.createNMEASentence(fragment2, 2, 2, messageIdCounter, 'B');
+                    if (shouldLogDebug) {
+                      app.debug(`[${vessel.mmsi}] Type 5 (1/2): ${sentence5_1}`);
+                      app.debug(`[${vessel.mmsi}] Type 5 (2/2): ${sentence5_2}`);
+                    }
+                    broadcastTCP(sentence5_1);
+                    broadcastWebSocket(sentence5_1);
+                    broadcastTCP(sentence5_2);
+                    broadcastWebSocket(sentence5_2);
+                  }
                 }
-                
-                broadcastTCP(sentence5);
               } else {
-                const fragment1 = payload5.substring(0, 62);
-                const fragment2 = payload5.substring(62);
-                const sentence5_1 = AISEncoder.createNMEASentence(fragment1, 2, 1, messageIdCounter, 'B');
-                const sentence5_2 = AISEncoder.createNMEASentence(fragment2, 2, 2, messageIdCounter, 'B');
-                
-                if (shouldLogDebug) {
-                  app.debug(`[${vessel.mmsi}] Type 5 (1/2): ${sentence5_1}`);
-                  app.debug(`[${vessel.mmsi}] Type 5 (2/2): ${sentence5_2}`);
+                // --- Class B: Type 24 ---
+                const payload24 = AISEncoder.createStaticVoyageType24(vessel);
+                if (payload24) {
+                  // Part A
+                  const sentence24A = AISEncoder.createNMEASentence(payload24.partA, 1, 1, messageIdCounter, 'B');
+                  if (shouldLogDebug) {
+                    app.debug(`[${vessel.mmsi}] Type 24 Part A: ${sentence24A}`);
+                  }
+                  broadcastTCP(sentence24A);
+                  broadcastWebSocket(sentence24A);
+
+                  // Part B
+                  const sentence24B = AISEncoder.createNMEASentence(payload24.partB, 1, 1, messageIdCounter, 'B');
+                  if (shouldLogDebug) {
+                    app.debug(`[${vessel.mmsi}] Type 24 Part B: ${sentence24B}`);
+                  }
+                  broadcastTCP(sentence24B);
+                  broadcastWebSocket(sentence24B);
                 }
-                
-                broadcastTCP(sentence5_1);
-                broadcastTCP(sentence5_2);
               }
-            }
           }
         });
         
         if (hasNewClients) {
-          newClients = [];
+          if (newTcpClients.length > 0) {
+            newTcpClients = [];
+          }
+          if (newWSClients.length > 0) {
+            newWSClients = [];
+          }
         }
         
         if (vesselFinderUpdateDue) {
           vesselFinderLastUpdate = nowTimestamp;
-          app.debug(`VesselFinder: sent ${vesselFinderCount} vessels`);
+          app.debug(`VesselFinder: sent ${vesselFinderCount} vessels changed in last ${options.vesselFinderUpdateRate} seconds.`);
         }
         
         app.debug(`${reason}: sent ${sentCount}, unchanged ${unchangedCount}, clients ${tcpClients.length}`);
@@ -1005,6 +1190,9 @@ function getVessels(options) {
     }).catch(err => {
       app.error(`Error in processVessels: ${err}`);
     });
+  } catch (err) {
+    app.error(`Error in processVessels outer try: ${err}`);
+  }    
   }
   
   function cleanupMaps(currentMMSIs, options) {

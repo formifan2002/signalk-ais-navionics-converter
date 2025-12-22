@@ -15,6 +15,7 @@ IMPORTANT: The following are required for the plugin to function:
 - [Configuration Parameters](#configuration-parameters)
   - [Basic Settings](#basic-settings)
     - [TCP Port](#tcp-port)
+    - [Websocket Port](#websocket-port)
     - [Update Interval for Changed Vessels](#update-interval-for-changed-vessels)
     - [Update Interval for Unchanged Vessels](#update-interval-for-unchanged-vessels)
   - [Data Filtering](#data-filtering)
@@ -57,11 +58,11 @@ IMPORTANT: The following are required for the plugin to function:
 - [Author](#author)
 - [Contributing](#contributing)
 - [Changelog](#changelog)
-  - [Version 1.0.0](#version-100)
 
 ## Features
 
-- **TCP Server**: Broadcasts NMEA 0183 AIS messages ([Type 1 - Position report](https://gpsd.gitlab.io/gpsd/AIVDM.html#_types_1_2_and_3_position_report_class_a) and [Type 5 - static and voyage related data](https://gpsd.gitlab.io/gpsd/AIVDM.html#_type_5_static_and_voyage_related_data)) to connected clients
+- **TCP Server**: Broadcasts NMEA 0183 AIS messages ([Type 1 - Position report AIS class A](https://gpsd.gitlab.io/gpsd/AIVDM.html#_types_1_2_and_3_position_report_class_a), [Type 19 - Extended position report AIS class B](https://gpsd.gitlab.io/gpsd/AIVDM.html#_type_19_extended_class_b_cs_position_report), [Type 5 - static and voyage related data class A](https://gpsd.gitlab.io/gpsd/AIVDM.html#_type_5_static_and_voyage_related_data) and [Type 24 - static data report class B](https://gpsd.gitlab.io/gpsd/AIVDM.html#_type_24_static_data_report)) to connected clients
+- **Websocket Server**: Same data broadcasted by the TCP server is send via a separate Websocket Server to connected clients. In addition the vessel data is broadcasted as JSON object ({"mmsi": 123456, ....})
 - **Smart Update Logic**: 
   - Sends updates immediately when vessel data changes
   - Resends unchanged vessels periodically to prevent timeout in navigation apps
@@ -91,6 +92,10 @@ Warning: AIS data provided by this plugin can assist navigation. However, it nev
 #### TCP Port
 - **Default**: 10113
 - **Description**: Port for the NMEA 0183 TCP server. Configure your navigation app (e.g., Navionics, OpenCpn) to connect to this port.
+
+#### Websocket Port
+- **Default**: 10114
+- **Description**: All AIS (NMEA 0183) messages are send by an own websocket server on this port to connected clients. In addition the data is send as JSON. Data can then be used by other plugins / apps (as clients). For the communication with the Navionics app, this port is not needed. If port is set to 0 no  Websocket server is started.
 
 #### Update Interval for Changed Vessels
 - **Default**: 15 (seconds)
@@ -150,7 +155,7 @@ Warning: AIS data provided by this plugin can assist navigation. However, it nev
 
 #### Include Vessels from AISFleet.com
 - **Default**: true
-- **Description**: Fetches nearby vessels from AISFleet.com cloud API and merges them with local SignalK vessel data. Requires internet connection and own position.
+- **Description**: Fetches nearby vessels from AISFleet.com cloud API and merges them with local SignalK vessel data. Requires internet connection and own position. If the plugin "AIS Fleet" is already installed and enabled in SignalK, this option is not shown.
 
 #### Radius for Cloud Vessels
 - **Default**: 10 (nm / nautical miles)
@@ -189,7 +194,7 @@ Warning: AIS data provided by this plugin can assist navigation. However, it nev
 1. **Data Collection**:
    - Fetches vessel data from SignalK API (`http://<IP_OF_SIGNALK_SERVER>:<PORT_SIGNALK_SERVER>/signalk/v1/api/vessels`)
      - use other SignalK plugins (like AisHub WS) to receive more vessels for SignalK with AIS information
-   - Optionally fetches nearby vessels from AISFleet.com API
+   - Optionally fetches nearby vessels from AISFleet.com API (if plugin "AIS Fleet" is not installed or not enabled)
    - Merges both sources, preferring newer timestamps
 
 2. **Data Processing**:
@@ -199,12 +204,13 @@ Warning: AIS data provided by this plugin can assist navigation. However, it nev
    - Filters vessels without valid name AND callsign
 
 3. **NMEA Generation**:
-   - Creates AIS Type 1 messages (position reports)
-   - Creates AIS Type 5 messages (static vessel data)
+   - Creates AIS Type 1 (class A) or Type 19 (class B) messages (position reports)
+   - Creates AIS Type 5 (class A) or Type 25 (class B) messages (static vessel data)
    - Encodes as NMEA 0183 sentences
 
 4. **Broadcasting**:
    - Sends to all connected TCP clients
+   - Sends to all connected Websocket clients
    - Optionally forwards to VesselFinder.com via UDP
    - Resends periodically to prevent client timeouts
 
@@ -270,7 +276,7 @@ When a new TCP client connects:
 
 ### Too many/few vessels
 - Adjust "Stale Data Threshold" to filter outdated vessels
-- Enable/disable "Include Vessels from AISFleet.com"
+- Enable/disable "Include Vessels from AISFleet.com" (if plugin "AIS Fleet" is not installed)
 - Adjust "Radius for Cloud Vessels" to control area coverage
 
 ## Debug Logging
@@ -290,10 +296,9 @@ Debug information includes:
 ## Requirements
 
 - SignalK server (Node.js version)
-- Own vessel position (for AISFleet cloud integration)
+- Own vessel position (for AISFleet cloud integration, if "AIS Fleet" plugin is not installed)
 - Own vessel MMSI
-- Internet connection (for AISFleet cloud features)
-- Navigation app with NMEA 0183 TCP support (e.g. Navionics boating app or OpenCpn)
+- Navigation app with NMEA 0183 TCP support (e.g. Navionics boating app, OpenCpn,...)
 
 ## License
 
@@ -320,3 +325,6 @@ Issues and pull requests are welcome!
  - enhanced debug logs
 ### Version 1.0.2
  - Changed to "Embedded Plugin Configuration Forms"
+ ### Version 1.0.3
+ - AIS message types for class A / B separated
+ - AIS Websocket server added
