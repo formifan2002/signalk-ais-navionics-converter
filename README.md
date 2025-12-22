@@ -137,7 +137,7 @@ Warning: AIS data provided by this plugin can assist navigation. However, it nev
 
 #### Enable VesselFinder Forwarding
 - **Default**: false
-- **Description**: When enabled, AIS Type 1 messages (position reports) are forwarded to VesselFinder.com via UDP.
+- **Description**: When enabled, AIS Type 1 and Type 19 messages (position reports for AIS class A and B) are forwarded to VesselFinder.com via UDP.
 
 #### VesselFinder Host
 - **Default**: ais.vesselfinder.com
@@ -155,7 +155,7 @@ Warning: AIS data provided by this plugin can assist navigation. However, it nev
 
 #### Include Vessels from AISFleet.com
 - **Default**: true
-- **Description**: Fetches nearby vessels from AISFleet.com cloud API and merges them with local SignalK vessel data. Requires internet connection and own position. If the plugin "AIS Fleet" is already installed and enabled in SignalK, this option is not shown.
+- **Description**: Fetches nearby vessels from AISFleet.com cloud API and merges them with local SignalK vessel data. Requires internet connection and own position (in SignalK key "navigation.position" must exist). If the plugin "AIS Fleet" is already installed and enabled in SignalK, this option is not shown.
 
 #### Radius for Cloud Vessels
 - **Default**: 10 (nm / nautical miles)
@@ -165,27 +165,27 @@ Warning: AIS data provided by this plugin can assist navigation. However, it nev
 
 #### Debug All Vessel Details
 - **Default**: false
-- **Description**: Enables detailed debug logging for all vessels in the server log. Only visible when plugin is in debug mode. Useful for troubleshooting or understanding of send data.
+- **Description**: Enables detailed debug logging for all vessels in the server log. Option only visible if plugin is in debug mode. Useful for troubleshooting or understanding of send data.
 
 #### Debug MMSI
 - **Default**: empty
-- **Description**: MMSI number for detailed debug output of a specific vessel. Only visible when plugin is in debug mode. Leave empty to disable.
+- **Description**: Debug output will be filtered for only this MMSI. Option only visible if plugin is in debug mode. Leave empty to disable.
 
 #### Debug Stale
 - **Default**: false
-- **Description**: Stale vessels will be shown in debug log - only visible if plugin is in debug mode and debug all vessel details is enabled
+- **Description**: Stale vessels will be shown in debug log - option only visible if plugin is in debug mode and debug all vessel details is enabled
 
 #### Debug JSON
 - **Default**: false
-- **Description**: JSON data of vessels will be shown in debug log - only visible if plugin is in debug mode and debug all vessel details is enabled
+- **Description**: JSON data of vessels will be shown in debug log - option only visible if plugin is in debug mode and debug all vessel details is enabled
 
 #### Debug AIS data
 - **Default**: false
-- **Description**: Detailed debug AIS data output in server log for all vessels - only visible if plugin is in debug mode and debug all vessel details is enabled
+- **Description**:  AIS NMEA0183 data output will be shown in debug log - option only visible if plugin is in debug mode and debug all vessel details is enabled
 
 #### Debug corrected SOG
 - **Default**: false
-- **Description**: Detailed debug output in server log for all vessels with corrected SOG - only visible if plugin is in debug mode and debug all vessel details is enabled
+- **Description**:  Vessels with corrected SOG will be shown in the debug log - option only visible if plugin is in debug mode and debug all vessel details is enabled
 
 ## How It Works
 
