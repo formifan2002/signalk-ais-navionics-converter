@@ -95,7 +95,7 @@ Warning: AIS data provided by this plugin can assist navigation. However, it nev
 
 #### Websocket Port
 - **Default**: 10114
-- **Description**: All AIS (NMEA 0183) messages are send by an own websocket server on this port to connected clients. In addition the data is send as JSON. Data can then be used by other plugins / apps (as clients). For the communication with the Navionics app, this port is not needed. If port is set to 0 no  Websocket server is started.
+- **Description**: All AIS (NMEA 0183) messages are send by an own websocket server on this port to connected clients. In addition the data of the vessels is send as JSON. Data can then be used by other plugins / apps (as clients). For the communication with the Navionics app, this port is not needed. If port is set to 0 no  Websocket server is started.
 
 #### Update Interval for Changed Vessels
 - **Default**: 15 (seconds)
