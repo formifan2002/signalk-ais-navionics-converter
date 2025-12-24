@@ -328,3 +328,5 @@ Issues and pull requests are welcome!
  ### Version 1.0.3
  - AIS message types for class A / B separated
  - AIS Websocket server added
+ ### Version 1.0.4
+ - minor bug corrections for unavailable ROT / Heading

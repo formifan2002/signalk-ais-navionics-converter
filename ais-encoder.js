@@ -173,17 +173,22 @@ computeAisSogCog(sogValue, sogUnits, cogValue, cogUnits, headingValue, headingUn
   // --- HEADING ---
   //
   // AIS: 511 = not available
-  let headingInt = 511;
+  const HEADING_UNAVALABLE=511
+  let headingInt = HEADING_UNAVALABLE;
 
   // Heading nur gültig, wenn SOG > 0 UND COG gültig
-  if (sogKn >= minAlarmSOG && cog10 !== 3600 && Number.isFinite(headingValue)) {
-
+   if (sogKn >= minAlarmSOG && cog10 !== 3600 && Number.isFinite(headingValue)) {
     let headingDeg;
-
+    
     if (headingUnits) {
       const u = headingUnits.toLowerCase();
       if (u.includes("rad")) {
-        headingDeg = headingValue * 180 / Math.PI;
+        if (units === "rad" && value > 2 * Math.PI) { 
+          // Wert ist definitiv falsch bwz. bei 8.91863247972741 genau gleich 511 Grad === unavailable 
+          headingInt = HEADING_UNAVALABLE;
+        }else{
+          headingDeg = headingValue * 180 / Math.PI;
+        }
       } else if (u.includes("deg")) {
         headingDeg = headingValue;
       } else {
@@ -196,11 +201,15 @@ computeAisSogCog(sogValue, sogUnits, cogValue, cogUnits, headingValue, headingUn
         ? headingValue * 180 / Math.PI
         : headingValue;
     }
-
-    headingDeg = ((headingDeg % 360) + 360) % 360;
-
-    headingInt = Math.round(headingDeg);
-    if (headingInt > 359) headingInt = 359;
+    // Filter für ungültige Werte
+    if (headingDeg >= 360 && headingDeg <= HEADING_UNAVALABLE) {
+      // Wert ist im "ungültig"-Bereich (360-511)
+      headingInt = HEADING_UNAVALABLE;
+    } else {
+      headingDeg = ((headingDeg % 360) + 360) % 360;
+      headingInt = Math.round(headingDeg);
+      if (headingInt > 359) headingInt = 359;
+    }
   }
 
   return { sog10, cog10, headingInt };
@@ -209,6 +218,7 @@ computeAisSogCog(sogValue, sogUnits, cogValue, cogUnits, headingValue, headingUn
 
 computeAisRot(rateValue, rateUnits) {
   // AIS default: ROT not available
+  const ROT_UNAVAILABLE = -2.23402144306284;
   let rot = -128; // standard -128 (unavailable)
 
   // Kein Wert → fertig
@@ -226,6 +236,9 @@ computeAisRot(rateValue, rateUnits) {
 
     if (u.includes("rad/s")) {
       // rad/s → deg/min
+      if (Math.abs(rate - ROT_UNAVAILABLE) < 1e-6) { 
+        return rot; // -128 
+      }
       rate = rate * (180 / Math.PI) * 60;
 
     } else if (u.includes("deg/s")) {
