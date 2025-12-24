@@ -28,10 +28,10 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
       skipWithoutCallsign: 'Schiffe ohne Rufzeichen überspringen',
       skipStaleData: 'Schiffe mit alten Daten überspringen',
       staleDataThreshold: 'Schwellenwert für alte Daten (Minuten):',
-      staleDataShipname: 'Zeitstempel zum Schiffsnamen hinzufügen ab (Minuten, 0=deaktiviert):',
+      staleDataShipname: 'Zeitstempel zum Schiffsnamen hinzufügen wenn die letzte Positionsmeldung älter ist als x Minuten (0=deaktiviert):',
       
-      minAlarmSOG: 'Minimale SOG für Alarm (m/s):',
-      maxMinutesSOGToZero: 'Maximum Minuten vor SOG auf 0 gesetzt (0=keine Korrektur):',
+      minAlarmSOG: 'SOG (und COG) wird auf 0 gesetzt, wenn die Geschwindigkeit kleiner als x Knoten ist (0=deaktiviert):',
+      maxMinutesSOGToZero: 'SOG wird auf 0 gesetzt wenn die letzte Positionsmeldung älter ist als x Minuten (0=keine Korrektur):',
       
       logDebugDetails: 'Debug Schiff-Details',
       logMMSI: 'Filter Debug-Ausgabe nur für MMSI:',
@@ -74,10 +74,10 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
       skipWithoutCallsign: 'Skip vessels without callsign',
       skipStaleData: 'Skip vessels with stale data',
       staleDataThreshold: 'Stale data threshold (minutes):',
-      staleDataShipname: 'Add timestamp to ship name from (minutes, 0=disabled):',
+      staleDataShipname: 'Add timestamp to vessel name if the last position report is older than x minutes (0=disabled):',
       
-      minAlarmSOG: 'Minimum SOG for alarm (m/s):',
-      maxMinutesSOGToZero: 'Maximum minutes before SOG set to 0 (0=no correction):',
+      minAlarmSOG: 'SOG (and COG) is set to 0 if the speed is less than x knots (0=disabled):',
+      maxMinutesSOGToZero: 'SOG is set to 0 if the last position report is older than x minutes (0=no correction):',
       
       logDebugDetails: 'Debug vessel details',
       logMMSI: 'Filter Debug only for MMSI:',

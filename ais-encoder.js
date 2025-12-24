@@ -1,23 +1,26 @@
 class AISEncoder {
-  static stateMap = {
-        'motoring': 0, 'anchored': 1, 'not under command': 2, 'restricted maneuverability': 3,
+  constructor(app) { this.app = app; }
+
+  stateMap = {
+        'motoring': 0, 'anchored': 1, 'not under command': 2, 'restricted manouverability': 3,
         'constrained by draft': 4, 'moored': 5, 'aground': 6, 'fishing': 7,
         'sailing': 8, 'hazardous material high speed': 9, 'hazardous material wing in ground': 10,
         'power-driven vessel towing astern': 11, 'power-driven vessel pushing ahead': 12,
-        'reserved': 13, 'ais-sart': 14, 'undefined': 15
+        'reserved': 13, 'ais-sart': 14, 'undefined': 15, 'default':15
   };
 
-  static encode6bit(val) {
+  encode6bit(val) {
     if (val < 0 || val > 63) throw new Error("6-bit out of range: " + val);
     return val <= 39 ? String.fromCharCode(val + 48) : String.fromCharCode(val + 56);
   }
 
-  static toTwosComplement(value, bits) {
-    if (value < 0) value = (1 << bits) + value;
-    return value;
+  toTwosComplement(value, bits) {
+    let max = 1 << bits;
+    if (value < 0) value = max + value;
+    return value.toString(2).padStart(bits, "0");
   }
 
-  static textToSixBit(str, length) {
+  textToSixBit(str, length) {
     const table = '@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_ !"#$%&\'()*+,-./0123456789:;<=>?';
     let bits = '';
     str = str || '';
@@ -30,13 +33,13 @@ class AISEncoder {
     return bits;
   }
 
-  static callsignToSixBit(callsign) {
+  callsignToSixBit(callsign) {
     callsign = (callsign || '').trim().toUpperCase();
     const padded = callsign.padEnd(7, '@').substring(0, 7);
     return this.textToSixBit(padded, 7);
   }
 
-  static bitsToPayload(bits) {
+  bitsToPayload(bits) {
     let payload = '';
     while (bits.length % 6 !== 0) {
       bits += '0';
@@ -50,13 +53,13 @@ class AISEncoder {
     return payload;
   }
 
-  static calculateChecksum(nmea) {
+  calculateChecksum(nmea) {
     let cs = 0;
     for (let i = 1; i < nmea.length; i++) cs ^= nmea.charCodeAt(i);
     return cs.toString(16).toUpperCase().padStart(2, '0');
   }
 
-   static parseETAToUTC(etaString) {
+   parseETAToUTC(etaString) {
     if (!etaString) return null;
 
     // Ungültige Platzhalter abfangen
@@ -94,7 +97,7 @@ class AISEncoder {
     return null;
   }
 
-static encodeNameTo6bit(name) {
+encodeNameTo6bit(name) {
   // Offizielle AIS 6-Bit Tabelle nach ITU-R M.1371:
   // 0=@, 1=A, ... 26=Z, 27=[, 28=\, 29=], 30=^, 31=_,
   // 32=Space, 33=!, 34=", ..., 48-57=0-9, 63=?
@@ -112,13 +115,167 @@ static encodeNameTo6bit(name) {
   return bits; // 20 * 6 = 120 Bit
 }
 
+computeAisSogCog(sogValue, sogUnits, cogValue, cogUnits, headingValue, headingUnits, minAlarmSOG = 0.2) {
+
+  //
+  // --- SOG ---
+  //
+  let sogKn = Number(sogValue) || 0;
+
+  if (!(sogUnits && sogUnits.toLowerCase().includes("kn"))) {
+    sogKn = sogKn * 1.94384;
+  }
+
+  if (sogKn < minAlarmSOG) {
+    sogKn = 0;
+  }
+
+  let sog10;
+  if (!Number.isFinite(sogKn) || sogKn <= 0) {
+    sog10 = 1023; // 1023 wäre "not available", aber du nutzt 0 → bleibt so
+  } else {
+    sog10 = Math.round(sogKn * 10);
+    if (sog10 > 1022) sog10 = 1022;
+  }
+
+  //
+  // --- COG ---
+  //
+  let cog10 = 3600; // AIS: 3600 = not available
+
+  if (sogKn >= minAlarmSOG && Number.isFinite(cogValue)) {
+    let cogDeg;
+
+    if (cogUnits) {
+      const u = cogUnits.toLowerCase();
+      if (u.includes("rad")) {
+        cogDeg = cogValue * 180 / Math.PI;
+      } else if (u.includes("deg")) {
+        cogDeg = cogValue;
+      } else {
+        cogDeg = Math.abs(cogValue) <= 2 * Math.PI
+          ? cogValue * 180 / Math.PI
+          : cogValue;
+      }
+    } else {
+      cogDeg = Math.abs(cogValue) <= 2 * Math.PI
+        ? cogValue * 180 / Math.PI
+        : cogValue;
+    }
+
+    cogDeg = ((cogDeg % 360) + 360) % 360;
+
+    cog10 = Math.round(cogDeg * 10);
+    if (cog10 > 3599) cog10 = 3599;
+  }
+
+  //
+  // --- HEADING ---
+  //
+  // AIS: 511 = not available
+  let headingInt = 511;
+
+  // Heading nur gültig, wenn SOG > 0 UND COG gültig
+  if (sogKn >= minAlarmSOG && cog10 !== 3600 && Number.isFinite(headingValue)) {
+
+    let headingDeg;
+
+    if (headingUnits) {
+      const u = headingUnits.toLowerCase();
+      if (u.includes("rad")) {
+        headingDeg = headingValue * 180 / Math.PI;
+      } else if (u.includes("deg")) {
+        headingDeg = headingValue;
+      } else {
+        headingDeg = Math.abs(headingValue) <= 2 * Math.PI
+          ? headingValue * 180 / Math.PI
+          : headingValue;
+      }
+    } else {
+      headingDeg = Math.abs(headingValue) <= 2 * Math.PI
+        ? headingValue * 180 / Math.PI
+        : headingValue;
+    }
+
+    headingDeg = ((headingDeg % 360) + 360) % 360;
+
+    headingInt = Math.round(headingDeg);
+    if (headingInt > 359) headingInt = 359;
+  }
+
+  return { sog10, cog10, headingInt };
+}
+
+
+computeAisRot(rateValue, rateUnits) {
+  // AIS default: ROT not available
+  let rot = -128; // standard -128 (unavailable)
+
+  // Kein Wert → fertig
+  if (typeof rateValue !== "number" || !Number.isFinite(rateValue)) {
+    return rot;
+  }
+
+  let rate = rateValue;
+
+  //
+  // 1. Einheit erkennen und nach °/min umrechnen
+  //
+  if (rateUnits) {
+    const u = rateUnits.toLowerCase();
+
+    if (u.includes("rad/s")) {
+      // rad/s → deg/min
+      rate = rate * (180 / Math.PI) * 60;
+
+    } else if (u.includes("deg/s")) {
+      // deg/s → deg/min
+      rate = rate * 60;
+
+    } else if (u.includes("deg/min")) {
+      // schon korrekt
+
+    } else {
+      // unbekannte Einheit → heuristisch rad/s
+      if (Math.abs(rate) < 10) {
+        rate = rate * (180 / Math.PI) * 60;
+      }
+    }
+
+  } else {
+    // Keine Units → heuristisch rad/s
+    if (Math.abs(rate) < 10) {
+      rate = rate * (180 / Math.PI) * 60;
+    }
+  }
+
+  //
+  // 2. Physikalische Begrenzung nach AIS (±708°/min)
+  //
+  if (rate > 708) rate = 708;
+  if (rate < -708) rate = -708;
+
+  //
+  // 3. AIS‑ROT‑Formel (ITU‑R M.1371)
+  //
+  if (rate !== 0) {
+    const sign = rate < 0 ? -1 : 1;
+    rot = Math.round(sign * 4.733 * Math.sqrt(Math.abs(rate)));
+
+    // 4. Begrenzung auf AIS‑Integer‑Range
+    if (rot > 126) rot = 126;
+    if (rot < -126) rot = -126;
+  }
+
+  return rot;
+}
 
   
-  static createPositionReportType1(vessel, config) {
+  createPositionReportType1(vessel, config) {
     // Type 1 - Position Report Class A
     try {
       const mmsi = parseInt(vessel.mmsi);
-      if (!mmsi || mmsi === 0) return null;
+        if (!mmsi || mmsi === 0) return null;
 
       const nav = vessel.navigation || {};
       const pos = nav.position?.value || nav.position || {};
@@ -126,14 +283,27 @@ static encodeNameTo6bit(name) {
       const longitude = pos.longitude;
       if (latitude === undefined || longitude === undefined) return null;
 
-      const state = nav.state?.value || '';
+      const rawState = nav.state?.value;
       let navStatus = 15;
-      if (state && AISEncoder.stateMap[state] !== undefined) navStatus = AISEncoder.stateMap[state];
+      if (typeof rawState === "number" && Number.isFinite(rawState)) {
+        navStatus = rawState;
+      } else if (typeof rawState === "string") {
+        const key = rawState.toLowerCase();
+        if (this.stateMap[key] !== undefined) {
+          navStatus = this.stateMap[key];
+        } else if (key !== "" && key !== "undefined" && key !== "default") {
+          this.app.error(`Unknown navigation status: ${rawState}`);
+        }
+
+      } else if (rawState !== undefined && rawState !== null) {
+        this.app.error(`Invalid navigation state type: ${rawState}`);
+      }
 
       // const timestamp = 60;
       const isoTime = pos.timestamp;
       let timestamp = 60; // default "not available"
-      if (isoTime) {
+      if (isoTime && nav?.speedOverGround) {
+        // die Berechnung nur machen, wenn SOG > 0 ist, weil Navionics sonst TCPA berechnet
         const date = new Date(isoTime);
         const ageMs = Date.now() - date.getTime();
         if (ageMs <= 60000) {
@@ -141,42 +311,31 @@ static encodeNameTo6bit(name) {
           timestamp = date.getUTCSeconds(); // 0–59
         }
       }
+      
       const raim = 0;
       const maneuver = 0;
       
-      const rateOfTurn = nav.rateOfTurn?.value || 0;
-      let rot = -128;
-      if (rateOfTurn !== 0) {
-        rot = Math.round(rateOfTurn * 4.733 * Math.sqrt(Math.abs(rateOfTurn)));
-        rot = Math.max(-126, Math.min(126, rot));
-      }
-      
-      const sog = nav.speedOverGround?.value || nav.speedOverGround || 0;
-      const cog = nav.courseOverGroundTrue?.value || nav.courseOverGroundTrue || 0;
-      const heading = nav.headingTrue?.value || nav.headingTrue || 0;
-
-      let sogValue = typeof sog === 'number' ? sog : 0;
-      if (sogValue < config.minAlarmSOG) sogValue = 0;
-
-      const cogValue = typeof cog === 'object' ? 0 : (typeof cog === 'number' ? cog : 0);
-      const headingValue = typeof heading === 'object' ? 0 : (typeof heading === 'number' ? heading : 0);
-
+      const rot = this.computeAisRot(nav.rateOfTurn?.value, nav.rateOfTurn?.meta?.units)
+     
       const lon = Math.round(longitude * 600000);
       const lat = Math.round(latitude * 600000);
       
-      const sogKnots = sogValue * 1.94384;
-      const sog10 = Math.round(sogKnots * 10);
-      
-      const cogDegrees = cogValue * 180 / Math.PI;
-      let cog10;
-      if (sogKnots < config.minAlarmSOG) {
-        cog10 = 0; // or 3600 to indicate not available
-      } else {
-        cog10 = Math.round(cogDegrees * 10);
-      }
-      
-      const headingDegrees = headingValue * 180 / Math.PI;
-      const headingInt = Math.round(headingDegrees);
+      // --- SOG + COG --- (sog10/10===SOG in kn, cog10/10===COG in °)
+      const sogField = nav?.speedOverGround;
+      const cogField = nav?.courseOverGroundTrue;
+      const headingField = nav?.headingTrue;
+
+      const { sog10, cog10, headingInt } = this.computeAisSogCog(
+        sogField?.value ?? 0,
+        sogField?.meta?.units ?? null,
+        cogField?.value ?? null,
+        cogField?.meta?.units ?? null,
+        headingField?.value ?? null,
+        headingField?.meta?.units ?? null,
+        config.minAlarmSOG
+      );
+
+
 
       let bits = '';
       bits += (1).toString(2).padStart(6, '0');
@@ -198,12 +357,12 @@ static encodeNameTo6bit(name) {
 
       return this.bitsToPayload(bits);
     } catch (error) {
-      console.error('Error creating position report:', error);
+      this.app.error('Error creating position report:', error);
       return null;
     }
   }
 
-  static createPositionReportType19(vessel, config) {
+  createPositionReportType19(vessel, config) {
     // Type 19 - Extended Class B Equipment Position Report
     try {
       const mmsi = parseInt(vessel.mmsi, 10);
@@ -219,7 +378,8 @@ static encodeNameTo6bit(name) {
       // Zeitstempel (UTC-Sekunden, nur wenn Position <= 60s alt)
       const isoTime = posObj.timestamp || pos.timestamp;
       let timestamp = 60; // 60 = not available
-      if (isoTime) {
+      if (isoTime && nav?.speedOverGround) {
+        // die Berechnung nur machen, wenn SOG > 0 ist, weil Navionics sonst TCPA berechnet
         const date = new Date(isoTime);
         const ageMs = Date.now() - date.getTime();
         if (ageMs <= 60000) {
@@ -230,71 +390,23 @@ static encodeNameTo6bit(name) {
       // RAIM
       const raimFlag = 0; // 0 = RAIM not in use
 
-      // --- ROT: Type 19 hat KEIN Rate-of-Turn-Feld ---
-      // also: ROT wird NICHT kodiert
+      // --- SOG + COG --- (sog10/10===SOG in kn, cog10/10===COG in °)
+      const sogField = nav?.speedOverGround;
+      const cogField = nav?.courseOverGroundTrue;
+      const headingField = nav?.headingTrue;
 
-      // --- SOG ---
-      let sogValue = 0;
-      const sogField = nav.speedOverGround;
-      if (sogField && typeof sogField.value === "number") {
-        sogValue = sogField.value; // bei dir: m/s
-        const units = sogField.meta?.units;
-        if (units && units.toLowerCase().includes("kn")) {
-          // falls du irgendwann knoten bekommst
-          // sogValue bleibt dann in kn
-        } else {
-          // aktuell: m/s -> kn
-          sogValue = sogValue * 1.94384;
-        }
-      }
+      const { sog10, cog10, headingInt } = this.computeAisSogCog(
+        sogField?.value ?? 0,
+        sogField?.meta?.units ?? null,
+        cogField?.value ?? null,
+        cogField?.meta?.units ?? null,
+        headingField?.value ?? null,
+        headingField?.meta?.units ?? null,
+        config.minAlarmSOG
+      );
 
-      // Filter, wie du ihn verwendest
-      if (sogValue < (config?.minAlarmSOG || 0)) {
-        sogValue = 0;
-      }
 
-      let sog10; // 0.1 kn
-      if (!Number.isFinite(sogValue) || sogValue < 0) {
-        sog10 = 1023; // not available
-      } else {
-        sog10 = Math.round(sogValue * 10);
-        if (sog10 > 1022) sog10 = 1022;
-      }
 
-      // --- COG ---
-      let cogValue = 0;
-      const cogField = nav.courseOverGroundTrue;
-      if (typeof cogField === "number") {
-        cogValue = cogField;
-      } else if (cogField && typeof cogField.value === "number") {
-        cogValue = cogField.value; // rad
-      }
-
-      let cog10 = 3600; // default: not available
-      if (Number.isFinite(cogValue) && sog10 !== 1023 && sog10 > 0) {
-        let cogDeg = cogValue * 180 / Math.PI;
-        cogDeg = ((cogDeg % 360) + 360) % 360; // 0-<360
-        cog10 = Math.round(cogDeg * 10);
-        if (cog10 < 0) cog10 += 3600;
-        if (cog10 > 3599) cog10 = 3599;
-      }
-
-      // --- Heading ---
-      let headingValue = 0;
-      const hdgField = nav.headingTrue;
-      if (typeof hdgField === "number") {
-        headingValue = hdgField;
-      } else if (hdgField && typeof hdgField.value === "number") {
-        headingValue = hdgField.value; // rad
-      }
-
-      let headingInt = 511; // 511 = not available
-      if (Number.isFinite(headingValue)) {
-        let hdgDeg = headingValue * 180 / Math.PI;
-        hdgDeg = ((hdgDeg % 360) + 360) % 360;
-        let h = Math.round(hdgDeg);
-        if (h >= 0 && h <= 359) headingInt = h;
-      }
 
       // --- Position in 1/10000 Minuten ---
       let lon = Math.round(longitude * 600000); // deg → 1/10000'
@@ -381,18 +493,18 @@ static encodeNameTo6bit(name) {
       bits += (0).toString(2).padStart(4, "0");     // 19 Spare
 
       if (bits.length !== 312) {
-        console.warn("AIS Type 19 bit length is not 312:", bits.length);
+        this.app.warn("AIS Type 19 bit length is not 312:", bits.length);
         return null;
       }
 
       return this.bitsToPayload(bits);
     } catch (err) {
-      console.error("Error creating type 19:", err);
+      this.app.error("Error creating type 19:", err);
       return null;
     }
   }
 
-  static createStaticVoyage(vessel) {
+  createStaticVoyage(vessel) {
     try {
       const mmsi = parseInt(vessel.mmsi);
       if (!mmsi || mmsi === 0) return null;
@@ -477,12 +589,12 @@ static encodeNameTo6bit(name) {
       bits += '0';
       return this.bitsToPayload(bits);
     } catch(err) {
-      console.error('Error creating type5:', err);
+      this.app.error('Error creating type5:', err);
       return null;
     }
   }
 
-  static createStaticVoyageType24(vessel) {
+  createStaticVoyageType24(vessel) {
   try {
     const mmsi = parseInt(vessel.mmsi);
     if (!mmsi || mmsi === 0) return null;
@@ -569,13 +681,13 @@ static encodeNameTo6bit(name) {
     };
 
   } catch (err) {
-    console.error("Error creating type24:", err);
+    this.app.error("Error creating type24:", err);
     return null;
   }
 }
 
 
-  static createNMEASentence(payload, fragmentCount=1, fragmentNum=1, messageId=null, channel='B') {
+  createNMEASentence(payload, fragmentCount=1, fragmentNum=1, messageId=null, channel='B') {
     const msgId = messageId !== null ? messageId.toString() : '';
     const fillBits = (6 - (payload.length*6)%6)%6;
     const sentence = `AIVDM,${fragmentCount},${fragmentNum},${msgId},${channel},${payload},${fillBits}`;

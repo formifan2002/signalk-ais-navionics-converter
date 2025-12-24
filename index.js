@@ -10,7 +10,7 @@ module.exports = function(app) {
     name: 'AIS to NMEA 0183 converter for TPC clients (e.g. Navionics, OpenCpn)',
     description: 'SignalK plugin to convert AIS data to NMEA 0183 sentences to TCP clients (e.g. Navionics boating app, OpenCpn) and optional to vesselfinder.com'
   };
-
+  const encoder = new AISEncoder(app);
   let tcpServer = null;
   let udpClient = null;
   let wsServer = null;
@@ -713,6 +713,7 @@ module.exports = function(app) {
   function mergeVesselSources(signalkVessels, cloudVessels, options) {
     const merged = {};
     const loggedVessels = new Set();
+    const logMMSI = options.logMMSI || '';
 
     app.debug(`Merging vessels - SignalK: ${signalkVessels ? Object.keys(signalkVessels).length : 0}, Cloud: ${cloudVessels ? Object.keys(cloudVessels).length : 0}`);
     
@@ -723,72 +724,65 @@ module.exports = function(app) {
       }
     }
     
-    // Merge Cloud Vessels
+    // Merge SignalK Schiffe mit Cloud Schiffen
     if (cloudVessels) {
       for (const [vesselId, cloudVessel] of Object.entries(cloudVessels)) {
         const mmsiMatch = vesselId.match(/mmsi:(\d+)/);
         const mmsi = mmsiMatch ? mmsiMatch[1] : null;
-        const logMMSI = options.logMMSI || '';
         const shouldLog = options.logDebugJSON && options.logDebugDetails && (mmsi === "" || mmsi === logMMSI)
         if (merged[vesselId]) {
-          // Vessel existiert in beiden Quellen - merge mit Timestamp-Vergleich
+          // Schiff existiert in beiden Quellen - merge mit Timestamp-Vergleich
           merged[vesselId] = mergeVesselData(merged[vesselId], cloudVessel);
-          
           if (shouldLog) {
             app.debug(`Merged vessel ${vesselId} (${mmsi}):`);
             app.debug(JSON.stringify(merged[vesselId], null, 2));
             loggedVessels.add(vesselId);
           }
         } else {
-          // Vessel nur in Cloud - direkt hinzufügen
+          // Schiff nur in Cloud - direkt hinzufügen
           merged[vesselId] = cloudVessel;
-          
           if (shouldLog) {
             app.debug(`Cloud-only vessel ${vesselId} (${mmsi}):`);
             app.debug(JSON.stringify(cloudVessel, null, 2));
             loggedVessels.add(vesselId);
           }
-          if (merged[vesselId].name && merged[vesselId].navigation.position.timestamp && options.staleDataShipnameAddTime > 0) {
-            const timestamp = new Date(merged[vesselId].navigation.position.timestamp); // UTC-Zeit
-            const nowUTC = new Date(); // aktuelle Zeit (intern ebenfalls UTC-basiert)
-            const diffMs = nowUTC - timestamp; // Differenz in Millisekunden
-            const diffMinutes = Math.floor(diffMs / (1000 * 60)); // Umrechnung in Minuten
-            if (diffMinutes >= options.staleDataShipnameAddTime) {
-              // Füge Zeitstempel zum Schiffsnamen hinzu und kürze auf 20 Zeichen
-              let suffix = "";
-              if (diffMinutes > 1439) { // mehr als 23:59 Minuten → Tage
-                const days = Math.ceil(diffMinutes / (60 * 24));
-                suffix = ` DAY${days}`;
-              } else if (diffMinutes > 59) { // mehr als 59 Minuten → Stunden
-                const hours = Math.ceil(diffMinutes / 60);
-                suffix = ` HOUR${hours}`;
-              } else { // sonst → Minuten
-                suffix = ` MIN${diffMinutes}`;
-              }
-              // Füge Zeitstempel zum Schiffsnamen hinzu und kürze auf 20 Zeichen
-              merged[vesselId].name = `${merged[vesselId].name}${suffix}`.substring(0, 20);
-            }
-          }
         }
       }
     }
-    if (options.logDebugJSON && options.logDebugDetails) {
-      for (const [vesselId, vessel] of Object.entries(merged)) {
 
-        // MMSI extrahieren
-        const mmsiMatch = vesselId.match(/mmsi:(\d+)/);
-        const mmsi = mmsiMatch ? mmsiMatch[1] : null;
+    for (const [vesselId, vessel] of Object.entries(merged)) {
 
-        // Wenn ein MMSI-Filter gesetzt ist → nur dieses MMSI loggen
-        if (options.logMMSI && options.logMMSI !== "" && mmsi !== options.logMMSI) {
-          continue;
+      // MMSI extrahieren
+      const mmsiMatch = vesselId.match(/mmsi:(\d+)/);
+      const mmsi = mmsiMatch ? mmsiMatch[1] : null;
+
+      const vessel = merged[vesselId];
+      const name = vessel?.name;
+      const ts = vessel?.navigation?.position?.timestamp;
+      const staleLimit = options.staleDataShipnameAddTime;
+
+      if (name && ts && staleLimit > 0) {
+
+        const diffMinutes = Math.floor((Date.now() - new Date(ts)) / 60000);
+
+        if (diffMinutes >= staleLimit) {
+
+          let suffix;
+          if (diffMinutes >= 1440) {
+            suffix = ` DAY${Math.ceil(diffMinutes / 1440)}`;
+          } else if (diffMinutes >= 60) {
+            suffix = ` HOUR${Math.ceil(diffMinutes / 60)}`;
+          } else {
+            suffix = ` MIN${diffMinutes}`;
+          }
+
+          vessel.nameStale = `${name}${suffix}`.substring(0, 20);
         }
-
-        // Nur loggen, wenn dieses Vessel NICHT bereits geloggt wurde
-        if (!loggedVessels.has(vesselId)) {
-          app.debug(`SignalK-only vessel ${vesselId} (${mmsi}):`);
-          app.debug(JSON.stringify(vessel, null, 2));
-        }
+      }
+      const shouldLog = options.logDebugJSON && options.logDebugDetails && (mmsi === "" || mmsi === logMMSI) && !loggedVessels.has(vesselId)
+      if (shouldLog) {
+        app.debug(`SignalK-only vessel ${vesselId} (${mmsi}):`);
+        app.debug(JSON.stringify(vessel, null, 2));
       }
     }
     app.debug(`Total merged vessels: ${Object.keys(merged).length}`);
@@ -819,7 +813,7 @@ function getVessels(options,aisfleetEnabled) {
       const vessels = [];
       
       // Merge beide Datenquellen (falls aisfleet plugin nicht aktiviert ist)
-      const allVessels = !aisfleetEnabled ? mergeVesselSources(signalkVessels, cloudVessels, options) : signalkVessels;
+      const allVessels =  mergeVesselSources(signalkVessels, cloudVessels, options)
       
       if (!allVessels) return vessels;      
       for (const [vesselId, vessel] of Object.entries(allVessels)) {
@@ -859,7 +853,7 @@ function getVessels(options,aisfleetEnabled) {
         
         vessels.push({
           mmsi: mmsi,
-          name: vessel.name || 'Unknown',
+          name: vessel.nameStale || vessel.name || 'Unknown',
           callsign: vessel.callsign || vessel.callSign || vessel.communication?.callsignVhf || '',
           navigation: vessel.navigation || {},
           design: vessel.design || {},
@@ -1075,10 +1069,10 @@ function getVessels(options,aisfleetEnabled) {
           const isClassA = !aisClass || aisClass.trim() === '' || aisClass.toUpperCase() === 'A';
           // Payload je nach Klasse erzeugen
           const payload = isClassA
-            ? AISEncoder.createPositionReportType1(vessel, options)
-            : AISEncoder.createPositionReportType19(vessel, options);
+            ? encoder.createPositionReportType1(vessel, options)
+            : encoder.createPositionReportType19(vessel, options);
             if (payload) {
-            const sentence = AISEncoder.createNMEASentence(payload, 1, 1, messageIdCounter, 'B');
+            const sentence = encoder.createNMEASentence(payload, 1, 1, messageIdCounter, 'B');
             
             if (shouldLogDebug) {
               app.debug(`MMSI ${vessel.mmsi} - Type ${isClassA?'1':'19'}: ${sentence}`);
@@ -1120,10 +1114,10 @@ function getVessels(options,aisfleetEnabled) {
           if (shouldSendStaticVoyage && sendToTCP) {
               if (isClassA) {
                 // --- Class A: Type 5 ---
-                const payload5 = AISEncoder.createStaticVoyage(vessel);
+                const payload5 = encoder.createStaticVoyage(vessel);
                 if (payload5) {
                   if (payload5.length <= 62) {
-                    const sentence5 = AISEncoder.createNMEASentence(payload5, 1, 1, messageIdCounter, 'B');
+                    const sentence5 = encoder.createNMEASentence(payload5, 1, 1, messageIdCounter, 'B');
                     if (shouldLogDebug) {
                       app.debug(`[${vessel.mmsi}] Type 5: ${sentence5}`);
                     }
@@ -1132,8 +1126,8 @@ function getVessels(options,aisfleetEnabled) {
                   } else {
                     const fragment1 = payload5.substring(0, 62);
                     const fragment2 = payload5.substring(62);
-                    const sentence5_1 = AISEncoder.createNMEASentence(fragment1, 2, 1, messageIdCounter, 'B');
-                    const sentence5_2 = AISEncoder.createNMEASentence(fragment2, 2, 2, messageIdCounter, 'B');
+                    const sentence5_1 = encoder.createNMEASentence(fragment1, 2, 1, messageIdCounter, 'B');
+                    const sentence5_2 = encoder.createNMEASentence(fragment2, 2, 2, messageIdCounter, 'B');
                     if (shouldLogDebug) {
                       app.debug(`[${vessel.mmsi}] Type 5 (1/2): ${sentence5_1}`);
                       app.debug(`[${vessel.mmsi}] Type 5 (2/2): ${sentence5_2}`);
@@ -1146,10 +1140,10 @@ function getVessels(options,aisfleetEnabled) {
                 }
               } else {
                 // --- Class B: Type 24 ---
-                const payload24 = AISEncoder.createStaticVoyageType24(vessel);
+                const payload24 = encoder.createStaticVoyageType24(vessel);
                 if (payload24) {
                   // Part A
-                  const sentence24A = AISEncoder.createNMEASentence(payload24.partA, 1, 1, messageIdCounter, 'B');
+                  const sentence24A = encoder.createNMEASentence(payload24.partA, 1, 1, messageIdCounter, 'B');
                   if (shouldLogDebug) {
                     app.debug(`[${vessel.mmsi}] Type 24 Part A: ${sentence24A}`);
                   }
@@ -1157,7 +1151,7 @@ function getVessels(options,aisfleetEnabled) {
                   broadcastWebSocket(sentence24A);
 
                   // Part B
-                  const sentence24B = AISEncoder.createNMEASentence(payload24.partB, 1, 1, messageIdCounter, 'B');
+                  const sentence24B = encoder.createNMEASentence(payload24.partB, 1, 1, messageIdCounter, 'B');
                   if (shouldLogDebug) {
                     app.debug(`[${vessel.mmsi}] Type 24 Part B: ${sentence24B}`);
                   }
