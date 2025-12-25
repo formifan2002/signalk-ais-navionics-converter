@@ -330,3 +330,5 @@ Issues and pull requests are welcome!
  - AIS Websocket server added
  ### Version 1.0.4
  - minor bug corrections for unavailable ROT / Heading
+ ### Version 1.0.5
+ - bug fixing Heading

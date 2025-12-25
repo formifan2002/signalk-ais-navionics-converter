@@ -334,6 +334,7 @@ module.exports = function(app) {
     app.debug(`VesselFinder UDP forwarding enabled: ${options.vesselFinderHost}:${options.vesselFinderPort}`);
   }
 
+
   function broadcastTCP(message) {
     tcpClients.forEach(client => {
       try {
@@ -342,6 +343,8 @@ module.exports = function(app) {
         app.error(`Error broadcasting to TCP client: ${err}`);
       }
     });
+    // Broadcast message to SignalK TCP server on port 10110
+    // app.emit('nmea0183out', message)
   }
 
   function broadcastWebSocket(message) {

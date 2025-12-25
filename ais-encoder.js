@@ -183,7 +183,7 @@ computeAisSogCog(sogValue, sogUnits, cogValue, cogUnits, headingValue, headingUn
     if (headingUnits) {
       const u = headingUnits.toLowerCase();
       if (u.includes("rad")) {
-        if (units === "rad" && value > 2 * Math.PI) { 
+        if (headingValue > 2 * Math.PI) { 
           // Wert ist definitiv falsch bwz. bei 8.91863247972741 genau gleich 511 Grad === unavailable 
           headingInt = HEADING_UNAVALABLE;
         }else{
@@ -370,7 +370,7 @@ computeAisRot(rateValue, rateUnits) {
 
       return this.bitsToPayload(bits);
     } catch (error) {
-      this.app.error('Error creating position report:', error);
+      this.app.error('Error creating position report type 1:', error);
       return null;
     }
   }
@@ -512,7 +512,7 @@ computeAisRot(rateValue, rateUnits) {
 
       return this.bitsToPayload(bits);
     } catch (err) {
-      this.app.error("Error creating type 19:", err);
+      this.app.error("Error creating position report type 19", err);
       return null;
     }
   }
