@@ -48,6 +48,7 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
       cloudVesselsEnabled: 'Schiffe von AISFleet.com einbeziehen',
       cloudVesselsUpdateInterval: 'Cloud Vessels Update-Intervall (Sekunden):',
       cloudVesselsRadius: 'Radius von eigenem Schiff (Seemeilen):',
+      cloudVesselsTimeout: 'Timeout in Sekunden zum Abrufen der Daten von AISFleet.com (Standard: 15)',
       
       portError: 'TCP Port und WebSocket Port müssen unterschiedlich sein',
       
@@ -94,6 +95,8 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
       cloudVesselsEnabled: 'Include vessels from AISFleet.com',
       cloudVesselsUpdateInterval: 'Cloud Vessels update interval (seconds):',
       cloudVesselsRadius: 'Radius from own vessel (nautical miles):',
+      cloudVesselsTimeout: 'Timeout in seconds to fetch the data from AISFleet.com (default: 15)',
+
       
       portError: 'TCP Port and WebSocket Port must be different',
       
@@ -637,6 +640,18 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
                   style={styles.input}
                 />
               </div>
+
+              <div style={styles.formGroup}>
+                <label style={styles.label}>{t.cloudVesselsTimeout}</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={config.cloudVesselsTimeout || 15}
+                  onChange={(e) => handleConfigChange('cloudVesselsTimeout', Number(e.target.value))}
+                  style={styles.input}
+                />
+              </div>
+
             </>
           )}
         </div>

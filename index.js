@@ -166,6 +166,11 @@ module.exports = function(app) {
         type: 'number',
         title: 'Radius (from own vessel) to include vessels from AISFleet.com (nautical miles)',
         default: 10
+      },
+      cloudVesselsTimeout: {
+        type: 'number',
+        title: 'Timeout in seconds to fetch the data from AISFleet.com (default: 15)',
+        default: 15
       }
     }
   };
@@ -461,7 +466,7 @@ module.exports = function(app) {
         maxBodyLength: Infinity,
         url: url,
         headers: {},
-        timeout: 15000 // Reduziert auf 15 Sekunden
+        timeout: ((options?.cloudVesselsTimeout ?? 15) * 1000)
       };
       
       const startTime = Date.now();
@@ -469,9 +474,6 @@ module.exports = function(app) {
       return axios.request(requestConfig)
         .then(response => {
           const duration = Date.now() - startTime;
-          if (duration > 10000) {
-            app.error(`AISFleet API slow response: ${duration}ms - consider reducing radius`);
-          }
           
           const data = response.data;
           

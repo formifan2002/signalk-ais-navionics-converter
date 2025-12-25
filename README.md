@@ -332,3 +332,5 @@ Issues and pull requests are welcome!
  - minor bug corrections for unavailable ROT / Heading
  ### Version 1.0.5
  - bug fixing Heading
+ ### Version 1.0.6
+ - configuration parameter added - Timeout in seconds to fetch the data from AISFleet.com
