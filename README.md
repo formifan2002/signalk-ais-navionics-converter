@@ -1,8 +1,13 @@
-# SignalK AIS to NMEA 0183 Converter
+# SignalK AIS to NMEA0183 / NMEA2000 Converter
 
-A SignalK plugin that converts AIS vessel data to NMEA 0183 sentences and broadcasts them via TCP to clients like 'Navionics Boating App' or 'OpenCpn'. Optionally forwards AIS data to VesselFinder.com and integrates cloud vessel data from AISFleet.com.
+A SignalK plugin that converts AIS vessel data to NMEA 0183 sentences and broadcasts them via TCP to clients like 'Navionics Boating App' or 'OpenCpn'. Optionally 
+- creates AIS NMEA2000 records for a selectable can bus interface
+- includes AIS data for vessels from [aisfleet.com](https://www.aisfleet.com)
+- forwards AIS data to [VesselFinder.com](https://www.vesselfinder.com)
 
-It is intended for vessels that do not have their own AIS receiver on board.
+It is intended for vessels that do not have their own AIS receiver.
+
+By using additional AIS plugins for SignalK (like [AISHub](https://github.com/sbender9/signalk-aishub-ws)) more AIS vessels are recognized and transferred.
 
 IMPORTANT: The following are required for the plugin to function:
   - a valid GPS position (visible in the SignalK Data Browser) in navigation.position
@@ -26,6 +31,7 @@ IMPORTANT: The following are required for the plugin to function:
   - [Speed Over Ground (SOG) Correction](#speed-over-ground-sog-correction)
     - [Minimum SOG for Alarm](#minimum-sog-for-alarm)
     - [Maximum Minutes Before SOG Set to Zero](#maximum-minutes-before-sog-set-to-zero)
+  - [NMEA2000 PGN Creation](#nmea2000-pgn-creation)
   - [VesselFinder Integration](#vesselfinder-integration)
     - [Enable VesselFinder Forwarding](#enable-vesselfinder-forwarding)
     - [VesselFinder Host](#vesselfinder-host)
@@ -54,6 +60,7 @@ IMPORTANT: The following are required for the plugin to function:
   - [Too manyfew vessels](#too-manyfew-vessels)
 - [Debug Logging](#debug-logging)
 - [Requirements](#requirements)
+- [API Description](#api-description)
 - [License](#license)
 - [Author](#author)
 - [Contributing](#contributing)
@@ -63,6 +70,8 @@ IMPORTANT: The following are required for the plugin to function:
 
 - **TCP Server**: Broadcasts NMEA 0183 AIS messages ([Type 1 - Position report AIS class A](https://gpsd.gitlab.io/gpsd/AIVDM.html#_types_1_2_and_3_position_report_class_a), [Type 19 - Extended position report AIS class B](https://gpsd.gitlab.io/gpsd/AIVDM.html#_type_19_extended_class_b_cs_position_report), [Type 5 - static and voyage related data class A](https://gpsd.gitlab.io/gpsd/AIVDM.html#_type_5_static_and_voyage_related_data) and [Type 24 - static data report class B](https://gpsd.gitlab.io/gpsd/AIVDM.html#_type_24_static_data_report)) to connected clients
 - **Websocket Server**: Same data broadcasted by the TCP server is send via a separate Websocket Server to connected clients. In addition the vessel data is broadcasted as JSON object ({"mmsi": 123456, ....})
+- **NMEA200 PGN creation**: 
+Optionally the plugin generates NMEA2000 'Position Report' PGN 129038 (Class A) / PGN 129039 (Class B), PGN 129794 (Class A Static and Voyage Related Data), PGN 129809+129810 (Class B static data Part A+B) and sends them to the selected CAN bus interface.
 - **Smart Update Logic**: 
   - Sends updates immediately when vessel data changes
   - Resends unchanged vessels periodically to prevent timeout in navigation apps
@@ -83,7 +92,7 @@ Warning: AIS data provided by this plugin can assist navigation. However, it nev
 
 1. Install via SignalK App Store 
 2. Restart SignalK server
-3. Configure the plugin in SignalK admin interface → Server → Plugin Config → AIS to NMEA 0183 converter for TPC clients (e.g. Navionics)
+3. Configure the plugin in SignalK admin interface → Server → Plugin Config → AIS to NMEA0183 / NMEA2000 converter for TPC clients (e.g. Navionics)
 
 ## Configuration Parameters
 
@@ -132,6 +141,10 @@ Warning: AIS data provided by this plugin can assist navigation. However, it nev
 #### Maximum Minutes Before SOG Set to Zero
 - **Default**: 0 (minutes, 0=disabled)
 - **Description**: Automatically sets SOG to 0 for vessels whose position timestamp is older than specified minutes. Prevents false collision warnings in navigation apps for vessels with outdated data. Set to 0 to disable this feature.
+
+### NMEA2000 PGN Creation
+- **Default**: false
+- **Description**: When enabled, the plugin generates NMEA2000 'Position Report' PGN 129038 (Class A) / PGN 129039 (Class B), PGN 129794 (Class A Static and Voyage Related Data), PGN 129809+129810 (Class B static data Part A+B) and sends them to the selected CAN bus interface. This option is only visible, if miminum 1 CAN interface (including virtual CAN interfaces) is available! Since Socket CAN is only available for Linux, the option will not be visible in Windows or MAC environments. If there is more than one existing interface, the corresponding interface can be selected.
 
 ### VesselFinder Integration
 
@@ -292,6 +305,7 @@ Debug information includes:
 - Connected clients count
 - Vessel filtering reasons
 - AIS sentence output (when Debug MMSI is set)
+- NMEA2000 sentence output (when NMEA2000 creation is enabled and debug MMSI is set)
 
 ## Requirements
 
@@ -299,6 +313,36 @@ Debug information includes:
 - Own vessel position (for AISFleet cloud integration, if "AIS Fleet" plugin is not installed)
 - Own vessel MMSI
 - Navigation app with NMEA 0183 TCP support (e.g. Navionics boating app, OpenCpn,...)
+
+## API Description
+The Plugin provides two HTTP API endpoints that allow external clients or user interfaces to query system capabilities and integration status. 
+
+1. http://<host>:<port>/plugins/signalk-ais-navionics-converter/can-interfaces — List available CAN and vCAN interfaces
+Returns a JSON object containing all detected CAN and vCAN interfaces on the host system, including their operational state.
+Only interfaces that physically exist on the system are listed.
+
+Example response:
+
+json
+{
+  "can0": { "state": "up" },
+  "vcan0": { "state": "up" }
+}
+This endpoint is typically used by configuration UIs to allow users to select an active NMEA2000 interface.
+
+2. http://<host>:<port>/plugins/signalk-ais-navionics-converter/aisfleet-status — Check AIS Fleet plugin availability
+Returns whether the AIS Fleet plugin is installed on the system and whether it is currently enabled.
+
+Example response:
+
+json
+{
+  "installed": true,
+  "enabled": false
+}
+This allows the UI to determine whether AIS Fleet functionality can be integrated or activated.
+
+3. http://<host>:<port>/plugins/signalk-ais-navionics-converter/openapi — OpenAPI definition of the plugin
 
 ## License
 
@@ -334,3 +378,6 @@ Issues and pull requests are welcome!
  - bug fixing Heading
  ### Version 1.0.6
  - configuration parameter added - Timeout in seconds to fetch the data from AISFleet.com
+ ### Version 1.0.7
+ - Option for creation of AIS NMEA2000 sentences (PGN) added.
+ - OpenAPI for available CAN interfaces and availability of plugin AISFleet added

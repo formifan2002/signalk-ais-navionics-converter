@@ -1,0 +1,149 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "AIS to NMEA Converter API",
+    "version": "1.0.0",
+    "description": "API endpoints for AIS converter plugin status and configuration"
+  },
+  "paths": {
+    "/can-interfaces": {
+      "get": {
+        "summary": "Get CAN interface status",
+        "description": "Returns the status of all available CAN interfaces",
+        "responses": {
+          "200": {
+            "description": "CAN interfaces status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "state": {
+                        "type": "string",
+                        "enum": ["up", "down", "unknown", "error"]
+                      }
+                    }
+                  },
+                  "example": {
+                    "can0": { "state": "up" },
+                    "vcan0": { "state": "down" }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string" },
+                    "message": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "/plugin-status": {
+      "get": {
+        "summary": "Get plugin enabled state and wsPort",
+        "description": "Returns whether the plugin is enabled and the configured WebSocket port",
+        "responses": {
+          "200": {
+            "description": "Plugin status and configuration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean",
+                      "description": "Whether the plugin is enabled"
+                    },
+                    "wsPort": {
+                      "type": "integer",
+                      "description": "Configured WebSocket port"
+                    }
+                  },
+                  "example": {
+                    "enabled": true,
+                    "wsPort": 3001
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string" },
+                    "message": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "/aisfleet-status": {
+      "get": {
+        "summary": "Get AIS Fleet plugin status",
+        "description": "Check if AIS Fleet plugin is installed and enabled",
+        "responses": {
+          "200": {
+            "description": "AIS Fleet plugin status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean",
+                      "description": "Whether AIS Fleet plugin is enabled"
+                    },
+                    "installed": {
+                      "type": "boolean",
+                      "description": "Whether AIS Fleet plugin is installed"
+                    }
+                  },
+                  "example": {
+                    "enabled": true,
+                    "installed": true
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string" },
+                    "message": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

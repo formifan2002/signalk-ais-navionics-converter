@@ -10,6 +10,7 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
   const [ownMMSI, setOwnMMSI] = useState(null);
   const [aisfleetEnabled, setAisfleetEnabled] = useState(false);
   const [portError, setPortError] = useState('');
+  const [nmea2000Interfaces, setNmea2000Interfaces] = useState([]); 
   
   const translations = {
     de: {
@@ -40,6 +41,12 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
       logDebugAIS: 'Debug AIS-Daten',
       logDebugSOG: 'Debug Schiffe mit korrigierter SOG',
       
+      nmea2000Creation: 'Erstelle NMEA2000 Datensätze',
+      nmea2000CreationHelp: 'Erzeugt NMEA2000 Position Report PGN 129038 (Class A) / PGN 129039 (Class B), PGN 129794 (Class A Static and Voyage Related Data), PGN 129809+129810 (Class B static data Part A+B).',
+      nmea2000Interface: 'NMEA2000 CAN-Bus-Schnittstelle',
+      nmea2000InterfaceHelp: 'Es werden nur aktive CAN- oder vCAN-Schnittstellen angezeigt.',
+      nmea2000Src: 'Adresse des sendenden Geräts im NMEA2000‑Netzwerk (0-251)',
+
       vesselFinderEnabled: 'VesselFinder-Weiterleitung aktivieren',
       vesselFinderHost: 'VesselFinder Host:',
       vesselFinderPort: 'VesselFinder UDP Port:',
@@ -86,7 +93,13 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
       logDebugJSON: 'Debug JSON data',
       logDebugAIS: 'Debug AIS data',
       logDebugSOG: 'Debug vessels with corrected SOG',
-      
+
+      nmea2000Creation: 'Create NMEA2000 records',
+      nmea2000CreationHelp: 'Generates NMEA2000 Position Report PGN 129038 (Class A) / PGN 129039 (Class B), PGN 129794 (Class A Static and Voyage Related Data), PGN 129809+129810 (Class B static data Part A+B).',
+      nmea2000Interface: 'NMEA2000 CAN Bus Interface',
+      nmea2000InterfaceHelp: 'Only active CAN or vCAN interfaces are shown.',
+      nmea2000Src: 'Source address of the transmitting device on the NMEA2000 network (0-251)',
+
       vesselFinderEnabled: 'Enable VesselFinder forwarding',
       vesselFinderHost: 'VesselFinder Host:',
       vesselFinderPort: 'VesselFinder UDP Port:',
@@ -112,17 +125,19 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
   const [currentLang, setCurrentLang] = useState(config.language === 'de' ? 'de' : 'en');
   const t = translations[currentLang];
 
-  // Hole eigene MMSI beim Laden
+  // Hole eigene MMSI, CAN interfaces und Status des Plugin aisfleet  beim Laden
   useEffect(() => {
-    const fetchOwnMMSI = async () => {
+    const fetchData = async () => {
       try {
         const protocol = window.location.protocol;
         const hostname = window.location.hostname;
         const port = window.location.port;
         const baseUrl = `${protocol}//${hostname}${port ? ':' + port : ''}`;
-        const aisfleetUrl = `${baseUrl}/plugins/aisfleet`;
-        const url = `${baseUrl}/signalk/v1/api/self`;
 
+        const nmea2000InterfacesUrl = `${baseUrl}/plugins/signalk-ais-navionics-converter/can-interfaces`;
+        const aisfleetUrl = `${baseUrl}/plugins/signalk-ais-navionics-converter/aisfleet-status`;
+        const url = `${baseUrl}/signalk/v1/api/self`;
+        // 1. MMSI laden
         const response = await fetch(url);
         if (response.ok) {
           const data = await response.json();
@@ -140,26 +155,60 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
             if (mmsi) setOwnMMSI(mmsi);
           }
         }
-
-        // AIS Fleet Plugin prüfen
+        // 2. AIS Fleet Plugin prüfen
         try {
           const aisResponse = await fetch(aisfleetUrl);
+
           if (aisResponse.ok) {
             const aisData = await aisResponse.json();
-            setAisfleetEnabled(!!aisData.enabled);
+
+            // Nur true, wenn installed === true UND enabled === true
+            const isEnabled = aisData.installed === true && aisData.enabled === true;
+
+            setAisfleetEnabled(isEnabled);
           } else {
             setAisfleetEnabled(false);
           }
-        } catch (err) {
+        } catch {
           setAisfleetEnabled(false);
         }
+
+      // 3. NMEA2000 Interfaces laden
+      try {
+        if (config.nmea2000Src === undefined) { handleConfigChange("nmea2000Src", 42)};
+        const ifaceRes = await fetch(nmea2000InterfacesUrl);
+        const ifaceData = await ifaceRes.json();
+
+        // Nur aktive Interfaces extrahieren
+        const activeIfaces = Object.entries(ifaceData)
+          .filter(([_, info]) => info.state === "up")
+          .map(([iface]) => iface);
+
+        setNmea2000Interfaces(activeIfaces);
+
+        // 1) Wenn config einen Wert hat → vorauswählen
+        if (config?.nmea2000Interface && activeIfaces.includes(config.nmea2000Interface)) {
+          handleConfigChange("nmea2000Interface", config.nmea2000Interface);
+        }
+
+        // 2) Wenn noch nichts gesetzt ist → erstes Interface automatisch setzen
+        else if (!config?.nmea2000Interface && activeIfaces.length > 0) {
+          handleConfigChange("nmea2000Interface", activeIfaces[0]);
+        }
+
       } catch (err) {
-        console.error('Failed to fetch own MMSI:', err);
+        console.error("Fehler beim Laden der CAN-Interfaces:", err);
+      }
+
+
+      } catch (err) {
+        console.error("Failed to fetch data:", err);
       }
     };
 
-    setTimeout(fetchOwnMMSI, 500);
-  }, []);
+    setTimeout(fetchData, 500);
+  }, []);   
+
 
   const handleConfigChange = (key, value) => {
     setConfig(prev => ({ ...prev, [key]: value }));
@@ -248,13 +297,13 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
 
   const handleLanguageChange = (lang) => {
     setCurrentLang(lang);
-    handleConfigChange('language', lang === 'de');
+    handleConfigChange('language', lang);
   };
 
   return (
     <div style={styles.container}>
       <div style={styles.header}>
-        <h2 style={styles.title}>AIS to NMEA 0183 Converter</h2>
+        <h2 style={styles.title}>AIS to NMEA0183/NMEA2000 Converter</h2>
         <button 
           onClick={() => window.open('https://github.com/formifan2002/signalk-ais-navionics-converter', '_blank')}
           style={styles.helpButton}
@@ -322,7 +371,7 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
             lineHeight: '1.4'
           }}>
             {currentLang === 'de' 
-              ? 'Über diesen Port werden alle AIS Daten als NMEA0183 und alle Schiffsdaten per JOSN  als Websocket gesendet (nicht für Navionics relevant). 0=kein Websocket Server.'
+              ? 'Über diesen Port werden alle AIS Daten als NMEA0183 und alle Schiffsdaten per JSON  als Websocket gesendet (nicht für Navionics relevant). 0=kein Websocket Server.'
               : 'This port is used to send all AIS data as NMEA0183 and all vessel data as JSON via Websocket (not relevant for Navionics). 0=no Websocket server.'}
           </div>
           <input
@@ -444,6 +493,113 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
           />
         </div>
       </div>
+
+      {/* NMEA2000 */}
+      {nmea2000Interfaces.length > 0 && (
+        <div style={styles.section}>
+          <h3 style={styles.sectionTitle}>{t.nmea2000Creation}</h3>
+
+          <div style={styles.formGroup}>
+            <label style={styles.checkbox}>
+              <input
+                type="checkbox"
+                checked={config.nmea2000Creation || false}
+                onChange={(e) =>
+                  handleConfigChange("nmea2000Creation", e.target.checked)
+                }
+              />
+              {t.nmea2000Creation}
+            </label>
+
+            <div
+              style={{
+                display: "block",
+                fontSize: "0.85em",
+                color: "#666",
+                marginTop: "8px",
+                marginBottom: "12px",
+                fontStyle: "italic",
+                lineHeight: "1.4",
+              }}
+            >
+              {t.nmea2000CreationHelp}
+            </div>
+          </div>
+
+          {config.nmea2000Creation && (
+            <div style={styles.formGroup}>
+              <label style={styles.label}>{t.nmea2000Interface}</label>
+
+              <select
+                style={{
+                  ...styles.select,
+                  width: "260px",
+                  padding: "8px 12px",
+                  borderRadius: "6px",
+                  border: "1px solid #ccc",
+                  backgroundColor: "#fff",
+                  fontSize: "0.95em",
+                  cursor: "pointer",
+                  appearance: "none",
+                  backgroundImage:
+                    "linear-gradient(45deg, transparent 50%, #666 50%), linear-gradient(135deg, #666 50%, transparent 50%)",
+                  backgroundPosition:
+                    "calc(100% - 15px) calc(50% - 3px), calc(100% - 10px) calc(50% - 3px)",
+                  backgroundSize: "5px 5px, 5px 5px",
+                  backgroundRepeat: "no-repeat",
+                }}
+                value={config.nmea2000Interface || ""}
+                onChange={(e) =>
+                  handleConfigChange("nmea2000Interface", e.target.value)
+                }
+              >
+                {nmea2000Interfaces.map((iface) => (
+                  <option key={iface} value={iface}>
+                    {iface}
+                  </option>
+                ))}
+              </select>
+
+              <div
+                style={{
+                  display: "block",
+                  fontSize: "0.85em",
+                  color: "#666",
+                  marginTop: "8px",
+                  marginBottom: "12px",
+                  fontStyle: "italic",
+                  lineHeight: "1.4",
+                }}
+              >
+                {t.nmea2000InterfaceHelp}
+              </div>
+              <label style={styles.label}>{t.nmea2000Src}</label>
+
+              <input
+                type="number"
+                min={0}
+                max={251}
+                style={{
+                  ...styles.input,
+                  width: "120px",
+                  padding: "6px 10px",
+                  borderRadius: "6px",
+                  border: "1px solid #ccc",
+                  fontSize: "0.95em",
+                }}
+                value={config.nmea2000Src ?? ""}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  if (val >= 0 && val <= 251) {
+                    handleConfigChange("nmea2000Src", val);
+                  }
+                }}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
 
       {/* Debugging */}
       <div style={styles.section}>
