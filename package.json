@@ -1,6 +1,6 @@
 {
   "name": "signalk-ais-navionics-converter",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Signal K plugin that converts AIS data into NMEA 0183 (TCP) and can also generate NMEA 2000 AIS PGNs, with optional AIS position reporting to vesselfinder.com",
   "main": "index.js",
   "keywords": [

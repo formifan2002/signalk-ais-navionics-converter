@@ -381,5 +381,5 @@ Issues and pull requests are welcome!
  ### Version 1.0.7
  - Option for creation of AIS NMEA2000 sentences (PGN) added.
  - OpenAPI for available CAN interfaces and availability of plugin AISFleet added
- ### Version 1.0.8
+ ### Version 1.0.8+1.0.9
  - Adjustments for latest versions of SignalK
