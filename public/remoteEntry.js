@@ -11,15 +11,15 @@ var signalk_ais_navionics_converter;
 /******/ 	"use strict";
 /******/ 	var __webpack_modules__ = ({
 
-/***/ "webpack/container/entry/signalk_ais_navionics_converter":
+/***/ "webpack/container/entry/signalk_ais_navionics_converter"
 /*!***********************!*\
   !*** container entry ***!
   \***********************/
-/***/ ((__unused_webpack_module, exports, __webpack_require__) => {
+(__unused_webpack_module, exports, __webpack_require__) {
 
 eval("{var moduleMap = {\n\t\"./PluginConfigurationPanel\": () => {\n\t\treturn __webpack_require__.e(\"src_components_PluginConfigurationPanel_jsx\").then(() => (() => ((__webpack_require__(/*! ./src/components/PluginConfigurationPanel.jsx */ \"./src/components/PluginConfigurationPanel.jsx\")))));\n\t}\n};\nvar get = (module, getScope) => {\n\t__webpack_require__.R = getScope;\n\tgetScope = (\n\t\t__webpack_require__.o(moduleMap, module)\n\t\t\t? moduleMap[module]()\n\t\t\t: Promise.resolve().then(() => {\n\t\t\t\tthrow new Error('Module \"' + module + '\" does not exist in container.');\n\t\t\t})\n\t);\n\t__webpack_require__.R = undefined;\n\treturn getScope;\n};\nvar init = (shareScope, initScope) => {\n\tif (!__webpack_require__.S) return;\n\tvar name = \"default\"\n\tvar oldScope = __webpack_require__.S[name];\n\tif(oldScope && oldScope !== shareScope) throw new Error(\"Container initialization failed as it has already been initialized with a different share scope\");\n\t__webpack_require__.S[name] = shareScope;\n\treturn __webpack_require__.I(name, initScope);\n};\n\n// This exports getters to disallow modifications\n__webpack_require__.d(exports, {\n\tget: () => (get),\n\tinit: () => (init)\n});\n\n//# sourceURL=webpack://signalk-ais-navionics-converter/container_entry?\n}");
 
-/***/ })
+/***/ }
 
 /******/ 	});
 /************************************************************************/
@@ -41,6 +41,12 @@ eval("{var moduleMap = {\n\t\"./PluginConfigurationPanel\": () => {\n\t\treturn 
 /******/ 		};
 /******/ 	
 /******/ 		// Execute the module function
+/******/ 		if (!(moduleId in __webpack_modules__)) {
+/******/ 			delete __webpack_module_cache__[moduleId];
+/******/ 			var e = new Error("Cannot find module '" + moduleId + "'");
+/******/ 			e.code = 'MODULE_NOT_FOUND';
+/******/ 			throw e;
+/******/ 		}
 /******/ 		__webpack_modules__[moduleId](module, module.exports, __webpack_require__);
 /******/ 	
 /******/ 		// Return the exports of the module
@@ -96,7 +102,7 @@ eval("{var moduleMap = {\n\t\"./PluginConfigurationPanel\": () => {\n\t\treturn 
 /******/ 		// This function allow to reference async chunks
 /******/ 		__webpack_require__.u = (chunkId) => {
 /******/ 			// return url for filenames based on template
-/******/ 			return "" + chunkId + ".js";
+/******/ 			return "" + chunkId + ".bundle.js";
 /******/ 		};
 /******/ 	})();
 /******/ 	
@@ -213,10 +219,6 @@ eval("{var moduleMap = {\n\t\"./PluginConfigurationPanel\": () => {\n\t\treturn 
 /******/ 			}
 /******/ 			var promises = [];
 /******/ 			switch(name) {
-/******/ 				case "default": {
-/******/ 					register("react", "16.14.0", () => (__webpack_require__.e("vendors-node_modules_react_index_js").then(() => (() => (__webpack_require__(/*! ./node_modules/react/index.js */ "./node_modules/react/index.js"))))));
-/******/ 				}
-/******/ 				break;
 /******/ 			}
 /******/ 			if(!promises.length) return initPromises[name] = 1;
 /******/ 			return initPromises[name] = Promise.all(promises).then(() => (initPromises[name] = 1));
@@ -371,12 +373,12 @@ eval("{var moduleMap = {\n\t\"./PluginConfigurationPanel\": () => {\n\t\treturn 
 /******/ 		});
 /******/ 		var installedModules = {};
 /******/ 		var moduleToHandlerMapping = {
-/******/ 			"webpack/sharing/consume/default/react/react": () => (loadSingleton("default", "react", false, () => (__webpack_require__.e("vendors-node_modules_react_index_js").then(() => (() => (__webpack_require__(/*! react */ "./node_modules/react/index.js")))))))
+/******/ 			"webpack/sharing/consume/default/react": () => (loadSingleton("default", "react", false))
 /******/ 		};
 /******/ 		// no consumes in initial chunks
 /******/ 		var chunkMapping = {
 /******/ 			"src_components_PluginConfigurationPanel_jsx": [
-/******/ 				"webpack/sharing/consume/default/react/react"
+/******/ 				"webpack/sharing/consume/default/react"
 /******/ 			]
 /******/ 		};
 /******/ 		var startedInstallModules = {};
