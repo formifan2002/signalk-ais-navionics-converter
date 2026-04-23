@@ -3,7 +3,7 @@
 A SignalK plugin that converts AIS vessel data to NMEA 0183 sentences and broadcasts them via TCP to clients like 'Navionics Boating App' or 'OpenCpn'. Optionally 
 - creates AIS NMEA2000 records for a selectable can bus interface
 - includes AIS data for vessels from [aisfleet.com](https://www.aisfleet.com)
-- forwards AIS data to [VesselFinder.com](https://www.vesselfinder.com)
+- forwards AIS data to multiple servers (e.g., [VesselFinder.com](https://www.vesselfinder.com))
 
 It is intended for vessels that do not have their own AIS receiver.
 
@@ -32,11 +32,9 @@ IMPORTANT: The following are required for the plugin to function:
     - [Minimum SOG for Alarm](#minimum-sog-for-alarm)
     - [Maximum Minutes Before SOG Set to Zero](#maximum-minutes-before-sog-set-to-zero)
   - [NMEA2000 PGN Creation](#nmea2000-pgn-creation)
-  - [VesselFinder Integration](#vesselfinder-integration)
-    - [Enable VesselFinder Forwarding](#enable-vesselfinder-forwarding)
-    - [VesselFinder Host](#vesselfinder-host)
-    - [VesselFinder UDP Port](#vesselfinder-udp-port)
-    - [VesselFinder Update Rate](#vesselfinder-update-rate)
+  - [Forwarding](#forwarding)
+    - [Forwarding Destinations](#forwarding-destinations)
+    - [Forwarding Update Rate](#forwarding-update-rate)
   - [AISFleet Cloud Integration](#aisfleet-cloud-integration)
     - [Include Vessels from AISFleetcom](#include-vessels-from-aisfleetcom)
     - [Radius for Cloud Vessels](#radius-for-cloud-vessels)
@@ -82,7 +80,7 @@ Optionally the plugin generates NMEA2000 'Position Report' PGN 129038 (Class A) 
   - Corrects invalid COG/Heading values (360° → 0°)
   - Optionally sets SOG to 0 for vessels with outdated position data
   - Adds timestamp suffix to vessel names with old position data
-- **VesselFinder.com Support**: Optional UDP forwarding of AIS Type 1 messages
+- **Multiple Forwarding Destinations**: Optional UDP forwarding of AIS Type 1 and Type 19 messages to multiple servers (e.g., VesselFinder.com)
 - **Flexible Filtering**: Skip vessels without callsign or valid identification
 - **Debug Options**: Detailed logging for specific MMSI or all vessels
 
@@ -146,23 +144,26 @@ Warning: AIS data provided by this plugin can assist navigation. However, it nev
 - **Default**: false
 - **Description**: When enabled, the plugin generates NMEA2000 'Position Report' PGN 129038 (Class A) / PGN 129039 (Class B), PGN 129794 (Class A Static and Voyage Related Data), PGN 129809+129810 (Class B static data Part A+B) and sends them to the selected CAN bus interface. This option is only visible, if miminum 1 CAN interface (including virtual CAN interfaces) is available! Since Socket CAN is only available for Linux, the option will not be visible in Windows or MAC environments. If there is more than one existing interface, the corresponding interface can be selected.
 
-### VesselFinder Integration
+### Forwarding
 
-#### Enable VesselFinder Forwarding
-- **Default**: false
-- **Description**: When enabled, AIS Type 1 and Type 19 messages (position reports for AIS class A and B) are forwarded to VesselFinder.com via UDP.
+#### Forwarding Destinations
+- **Default**: empty array
+- **Description**: List of hosts to forward AIS messages to via UDP. Add multiple forwarding destinations to send AIS Type 1 and Type 19 messages (position reports for AIS class A and B) to different servers or services (e.g., VesselFinder.com, custom AIS servers, etc.).
+- **Configuration**: For each forwarding destination, specify:
+  - **Host**: Hostname or IP address of the forwarding server
+  - **Port**: UDP port number (1-65535)
+- **Example Configuration**:
+  ```json
+  [
+    { "host": "ais.vesselfinder.com", "port": 5500 },
+    { "host": "data.aishub.net", "port": 5500 },
+    { "host": "192.168.1.100", "port": 8080 }
+  ]
+  ```
 
-#### VesselFinder Host
-- **Default**: ais.vesselfinder.com
-- **Description**: Hostname for VesselFinder UDP server.
-
-#### VesselFinder UDP Port
-- **Default**: 5500
-- **Description**: UDP port for VesselFinder server.
-
-#### VesselFinder Update Rate
+#### Forwarding Update Rate
 - **Default**: 60 (seconds)
-- **Description**: How often to send position updates to VesselFinder.
+- **Description**: How often to send position updates to all configured forwarding destinations. Updates are sent only for vessels with position data younger than 5 minutes to ensure data quality.
 
 ### AISFleet Cloud Integration
 
@@ -173,6 +174,14 @@ Warning: AIS data provided by this plugin can assist navigation. However, it nev
 #### Radius for Cloud Vessels
 - **Default**: 10 (nm / nautical miles)
 - **Description**: Radius around own vessel position to fetch cloud vessels from AISFleet.com (1-100 nm).
+
+#### Cloud Vessels Update Interval
+- **Default**: 300 (seconds)
+- **Description**: How often to fetch vessels from AISFleet.com (default: 60, recommended: 60-300).
+
+#### Cloud Vessels Timeout
+- **Default**: 15 (seconds)
+- **Description**: Timeout in seconds to fetch the data from AISFleet.com.
 
 ### Debug Options
 
@@ -221,10 +230,10 @@ Warning: AIS data provided by this plugin can assist navigation. However, it nev
    - Creates AIS Type 5 (class A) or Type 25 (class B) messages (static vessel data)
    - Encodes as NMEA 0183 sentences
 
-4. **Broadcasting**:
+4. **Broadcasting & Forwarding**:
    - Sends to all connected TCP clients
    - Sends to all connected Websocket clients
-   - Optionally forwards to VesselFinder.com via UDP
+   - Forwards to all configured forwarding destinations via UDP (if configured)
    - Resends periodically to prevent client timeouts
 
 ### Merge Logic
@@ -306,6 +315,7 @@ Debug information includes:
 - Vessel filtering reasons
 - AIS sentence output (when Debug MMSI is set)
 - NMEA2000 sentence output (when NMEA2000 creation is enabled and debug MMSI is set)
+- Forwarding statistics (sent vessel count to all configured destinations)
 
 ## Requirements
 
@@ -315,34 +325,40 @@ Debug information includes:
 - Navigation app with NMEA 0183 TCP support (e.g. Navionics boating app, OpenCpn,...)
 
 ## API Description
-The Plugin provides two HTTP API endpoints that allow external clients or user interfaces to query system capabilities and integration status. 
+The Plugin provides HTTP API endpoints that allow external clients or user interfaces to query system capabilities and integration status. 
 
-1. http://<host>:<port>/plugins/signalk-ais-navionics-converter/can-interfaces — List available CAN and vCAN interfaces
+1. **http://<host>:<port>/plugins/signalk-ais-navionics-converter/can-interfaces** — List available CAN and vCAN interfaces
+
 Returns a JSON object containing all detected CAN and vCAN interfaces on the host system, including their operational state.
 Only interfaces that physically exist on the system are listed.
 
 Example response:
-
-json
+```json
 {
   "can0": { "state": "up" },
   "vcan0": { "state": "up" }
 }
+```
+
 This endpoint is typically used by configuration UIs to allow users to select an active NMEA2000 interface.
 
-2. http://<host>:<port>/plugins/signalk-ais-navionics-converter/aisfleet-status — Check AIS Fleet plugin availability
+2. **http://<host>:<port>/plugins/signalk-ais-navionics-converter/aisfleet-status** — Check AIS Fleet plugin availability
+
 Returns whether the AIS Fleet plugin is installed on the system and whether it is currently enabled.
 
 Example response:
-
-json
+```json
 {
   "installed": true,
   "enabled": false
 }
+```
+
 This allows the UI to determine whether AIS Fleet functionality can be integrated or activated.
 
-3. http://<host>:<port>/plugins/signalk-ais-navionics-converter/openapi — OpenAPI definition of the plugin
+3. **http://<host>:<port>/plugins/signalk-ais-navionics-converter/openapi** — OpenAPI definition of the plugin
+
+Returns the OpenAPI specification of all available API endpoints.
 
 ## License
 
@@ -365,21 +381,35 @@ Issues and pull requests are welcome!
 - VesselFinder.com UDP forwarding
 - Smart filtering and data correction
 - Configurable update intervals
+
 ### Version 1.0.1
- - enhanced debug logs
+ - Enhanced debug logs
+
 ### Version 1.0.2
  - Changed to "Embedded Plugin Configuration Forms"
- ### Version 1.0.3
+
+### Version 1.0.3
  - AIS message types for class A / B separated
  - AIS Websocket server added
- ### Version 1.0.4
- - minor bug corrections for unavailable ROT / Heading
- ### Version 1.0.5
- - bug fixing Heading
- ### Version 1.0.6
- - configuration parameter added - Timeout in seconds to fetch the data from AISFleet.com
- ### Version 1.0.7
- - Option for creation of AIS NMEA2000 sentences (PGN) added.
+
+### Version 1.0.4
+ - Minor bug corrections for unavailable ROT / Heading
+
+### Version 1.0.5
+ - Bug fixing Heading
+
+### Version 1.0.6
+ - Configuration parameter added - Timeout in seconds to fetch the data from AISFleet.com
+
+### Version 1.0.7
+ - Option for creation of AIS NMEA2000 sentences (PGN) added
  - OpenAPI for available CAN interfaces and availability of plugin AISFleet added
- ### Version 1.0.8+1.0.9
+
+### Version 1.0.8 & 1.0.9
  - Adjustments for latest versions of SignalK
+
+### Version 1.1.0
+ - **NEW**: Multiple forwarding destinations support (replaces single VesselFinder forwarding)
+ - **CHANGED**: Forwarding configuration now supports flexible array of host:port pairs
+ - **IMPROVED**: Forwarding error messages now include specific host:port information
+ - **IMPROVED**: Debug logging for forwarding statistics

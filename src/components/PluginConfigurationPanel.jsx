@@ -18,7 +18,7 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
       tcpServer: 'TCP Server',
       filtering: 'Filterung',
       debugging: 'Debugging',
-      vesselFinder: 'VesselFinder',
+      forwarding: 'Weiterleitung',
       cloudVessels: 'Cloud Vessels (AISFleet)',
       
       tcpPort: 'TCP Port:',
@@ -47,10 +47,11 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
       nmea2000InterfaceHelp: 'Es werden nur aktive CAN- oder vCAN-Schnittstellen angezeigt.',
       nmea2000Src: 'Adresse des sendenden Geräts im NMEA2000‑Netzwerk (0-251)',
 
-      vesselFinderEnabled: 'VesselFinder-Weiterleitung aktivieren',
-      vesselFinderHost: 'VesselFinder Host:',
-      vesselFinderPort: 'VesselFinder UDP Port:',
-      vesselFinderUpdateRate: 'VesselFinder Update Rate (Sekunden):',
+      forwardingHost: 'Host:',
+      forwardingPort: 'UDP Port:',
+      forwardingUpdateRate: 'Update Rate (Sekunden):',
+      addConnection: 'Neue Verbindung',
+      deleteConnection: 'Verbindung löschen',
       
       cloudVesselsEnabled: 'Schiffe von AISFleet.com einbeziehen',
       cloudVesselsUpdateInterval: 'Cloud Vessels Update-Intervall (Sekunden):',
@@ -71,7 +72,7 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
       tcpServer: 'TCP Server',
       filtering: 'Filtering',
       debugging: 'Debugging',
-      vesselFinder: 'VesselFinder',
+      forwarding: 'Forwarding',
       cloudVessels: 'Cloud Vessels (AISFleet)',
       
       tcpPort: 'TCP Port:',
@@ -100,10 +101,11 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
       nmea2000InterfaceHelp: 'Only active CAN or vCAN interfaces are shown.',
       nmea2000Src: 'Source address of the transmitting device on the NMEA2000 network (0-251)',
 
-      vesselFinderEnabled: 'Enable VesselFinder forwarding',
-      vesselFinderHost: 'VesselFinder Host:',
-      vesselFinderPort: 'VesselFinder UDP Port:',
-      vesselFinderUpdateRate: 'VesselFinder Update Rate (seconds):',
+      forwardingHost: 'Host:',
+      forwardingPort: 'UDP Port:',
+      forwardingUpdateRate: 'Update Rate (seconds):',
+      addConnection: 'Add Connection',
+      deleteConnection: 'Delete connection',
       
       cloudVesselsEnabled: 'Include vessels from AISFleet.com',
       cloudVesselsUpdateInterval: 'Cloud Vessels update interval (seconds):',
@@ -226,6 +228,25 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
     }
   };
 
+  // Weiterleitungen verwalten
+  const handleAddForwarding = () => {
+    const forwardings = config.forwardings || [];
+    const newForwardings = [...forwardings, { host: '', port: 5500 }];
+    handleConfigChange('forwardings', newForwardings);
+  };
+
+  const handleUpdateForwarding = (index, field, value) => {
+    const forwardings = [...(config.forwardings || [])];
+    forwardings[index] = { ...forwardings[index], [field]: value };
+    handleConfigChange('forwardings', forwardings);
+  };
+
+  const handleDeleteForwarding = (index) => {
+    const forwardings = config.forwardings || [];
+    const newForwardings = forwardings.filter((_, i) => i !== index);
+    handleConfigChange('forwardings', newForwardings);
+  };
+
   const isMMSIInvalid = () => {
     return ownMMSI && config.logMMSI && config.logMMSI === ownMMSI;
   };
@@ -241,160 +262,102 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
   };
 
   const handleSave = () => {
-    // Validiere Debug MMSI
-    if (isMMSIInvalid()) {
-      setStatus('error');
-      const errorMsg = currentLang === 'de' 
-        ? 'Fehler: Sie können nicht die eigene MMSI zum Filtern verwenden!'
-        : 'Error: You cannot use your own MMSI for filtering!';
-      alert(errorMsg);
-      return;
-    }
-
-    // Validiere Ports
-    if (isPortInvalid()) {
-      setStatus('error');
-      const errorMsg = currentLang === 'de' 
-        ? 'Fehler: TCP Port und WebSocket Port müssen unterschiedlich sein!'
-        : 'Error: TCP Port and WebSocket Port must be different!';
-      alert(errorMsg);
-      return;
-    }
+    if (isMMSIInvalid()) return;
+    if (isPortInvalid()) return;
 
     setLoading(true);
-    if (save) {
+    setTimeout(async () => {
       try {
-        const result = save(config);
-        
-        if (result && typeof result.then === 'function') {
-          result
-            .then(() => {
-              setStatus('success');
-              setInitialConfig(config);
-              setTimeout(() => setStatus(''), 3000);
-            })
-            .catch(err => {
-              setStatus('error');
-              setTimeout(() => setStatus(''), 3000);
-            })
-            .finally(() => {
-              setLoading(false);
-            });
-        } else {
-          setStatus('success');
-          setInitialConfig(config);
-          setTimeout(() => setStatus(''), 3000);
-          setLoading(false);
+        if (save && typeof save === 'function') {
+          await save(config);
         }
+        setInitialConfig(config);
+        setStatus('success');
+        setTimeout(() => setStatus(''), 3000);
       } catch (err) {
-        console.error('Error in handleSave:', err);
+        console.error("Error saving config:", err);
         setStatus('error');
         setTimeout(() => setStatus(''), 3000);
+      } finally {
         setLoading(false);
       }
-    }
-  };
-
-  const handleLanguageChange = (lang) => {
-    setCurrentLang(lang);
-    handleConfigChange('language', lang);
+    }, 500);
   };
 
   return (
     <div style={styles.container}>
       <div style={styles.header}>
-        <h2 style={styles.title}>AIS to NMEA0183/NMEA2000 Converter</h2>
-        <button 
-          onClick={() => window.open('https://github.com/formifan2002/signalk-ais-navionics-converter', '_blank')}
-          style={styles.helpButton}
-        >
-          ℹ️ {currentLang === 'de' ? 'Hilfe' : 'Help'}
-        </button>
+        <h1 style={styles.title}>
+          {currentLang === 'de' ? 'AIS-Navionics-Konverter Konfiguration' : 'AIS-Navionics-Converter Configuration'}
+        </h1>
+        <div style={styles.languageSelector}>
+          <button
+            onClick={() => setCurrentLang('de')}
+            style={{
+              ...styles.langButton,
+              ...(currentLang === 'de' ? styles.langButtonActive : {})
+            }}
+          >
+            Deutsch
+          </button>
+          <button
+            onClick={() => setCurrentLang('en')}
+            style={{
+              ...styles.langButton,
+              ...(currentLang === 'en' ? styles.langButtonActive : {})
+            }}
+          >
+            English
+          </button>
+        </div>
       </div>
 
-      <div style={styles.languageSelector}>
-        <button 
-          onClick={() => handleLanguageChange('de')}
-          style={{...styles.langButton, ...(currentLang === 'de' ? styles.langButtonActive : {})}}
-        >
-          Deutsch
-        </button>
-        <button 
-          onClick={() => handleLanguageChange('en')}
-          style={{...styles.langButton, ...(currentLang === 'en' ? styles.langButtonActive : {})}}
-        >
-          English
-        </button>
+      {/* General */}
+      <div style={styles.section}>
+        <h2 style={styles.sectionTitle}>{t.general}</h2>
+        <div style={styles.formGroup}>
+          <label style={styles.label}>
+            {currentLang === 'de' ? 'Sprache / Language:' : 'Language / Sprache:'}
+          </label>
+          <select
+            value={config.language || 'de'}
+            onChange={(e) => {
+              handleConfigChange('language', e.target.value);
+              setCurrentLang(e.target.value);
+            }}
+            style={styles.input}
+          >
+            <option value="de">Deutsch</option>
+            <option value="en">English</option>
+          </select>
+        </div>
       </div>
 
       {/* TCP Server */}
       <div style={styles.section}>
-        <h3 style={styles.sectionTitle}>{t.tcpServer}</h3>
-        
+        <h2 style={styles.sectionTitle}>{t.tcpServer}</h2>
         <div style={styles.formGroup}>
           <label style={styles.label}>{t.tcpPort}</label>
-          <div style={{
-            display: 'block',
-            fontSize: '0.85em',
-            color: '#666',
-            marginTop: '8px',
-            marginBottom: '12px',
-            fontStyle: 'italic',
-            lineHeight: '1.4'
-          }}>
-            {currentLang === 'de' 
-              ? 'Dieser Port ist später in der Navionics boating app im Menüpunkt \'Gekoppelte Geräte\' als TCP Port anzugeben.'
-              : 'This port must be specified later in the Navionics boating app under the menu item \'Paired Devices\' as TCP Port.'}
-          </div>
           <input
             type="number"
             min="1"
             max="65535"
             value={config.tcpPort || 10113}
             onChange={(e) => handleConfigChange('tcpPort', Number(e.target.value))}
-            style={{
-              ...styles.input,
-              ...(portError ? { borderColor: '#dc3545', backgroundColor: '#fff5f5' } : {})
-            }}
+            style={styles.input}
           />
         </div>
 
         <div style={styles.formGroup}>
           <label style={styles.label}>{t.wsPort}</label>
-          <div style={{
-            display: 'block',
-            fontSize: '0.85em',
-            color: '#666',
-            marginTop: '8px',
-            marginBottom: '12px',
-            fontStyle: 'italic',
-            lineHeight: '1.4'
-          }}>
-            {currentLang === 'de' 
-              ? 'Über diesen Port werden alle AIS Daten als NMEA0183 und alle Schiffsdaten per JSON  als Websocket gesendet (nicht für Navionics relevant). 0=kein Websocket Server.'
-              : 'This port is used to send all AIS data as NMEA0183 and all vessel data as JSON via Websocket (not relevant for Navionics). 0=no Websocket server.'}
-          </div>
           <input
             type="number"
-            min="0"
+            min="1"
             max="65535"
             value={config.wsPort || 10114}
             onChange={(e) => handleConfigChange('wsPort', Number(e.target.value))}
-            style={{
-              ...styles.input,
-              ...(portError ? { borderColor: '#dc3545', backgroundColor: '#fff5f5' } : {})
-            }}
+            style={styles.input}
           />
-          {portError && (
-            <div style={{
-              color: '#dc3545',
-              fontSize: '0.85em',
-              marginTop: '8px',
-              fontWeight: '500'
-            }}>
-              ⚠️ {portError}
-            </div>
-          )}
         </div>
 
         <div style={styles.formGroup}>
@@ -402,7 +365,7 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
           <input
             type="number"
             min="1"
-            value={config.updateInterval || 15}
+            value={config.updateInterval || 60}
             onChange={(e) => handleConfigChange('updateInterval', Number(e.target.value))}
             style={styles.input}
           />
@@ -412,63 +375,70 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
           <label style={styles.label}>{t.tcpResendInterval}</label>
           <input
             type="number"
-            min="0"
-            value={config.tcpResendInterval || 60}
+            min="1"
+            value={config.tcpResendInterval || 300}
             onChange={(e) => handleConfigChange('tcpResendInterval', Number(e.target.value))}
             style={styles.input}
           />
         </div>
+
+        {portError && (
+          <div style={styles.error}>{portError}</div>
+        )}
       </div>
 
       {/* Filtering */}
       <div style={styles.section}>
-        <h3 style={styles.sectionTitle}>{t.filtering}</h3>
-
-        <div style={styles.formGroup}>
-          <label style={styles.checkbox}>
-            <input
-              type="checkbox"
-              checked={config.skipWithoutCallsign || false}
-              onChange={(e) => handleConfigChange('skipWithoutCallsign', e.target.checked)}
-            />
+        <h2 style={styles.sectionTitle}>{t.filtering}</h2>
+        <div style={styles.checkbox}>
+          <input
+            type="checkbox"
+            id="skipWithoutCallsign"
+            checked={config.skipWithoutCallsign || false}
+            onChange={(e) => handleConfigChange('skipWithoutCallsign', e.target.checked)}
+          />
+          <label htmlFor="skipWithoutCallsign" style={{ margin: 0 }}>
             {t.skipWithoutCallsign}
           </label>
         </div>
 
-        <div style={styles.formGroup}>
-          <label style={styles.checkbox}>
-            <input
-              type="checkbox"
-              checked={config.skipStaleData !== false}
-              onChange={(e) => handleConfigChange('skipStaleData', e.target.checked)}
-            />
+        <div style={styles.checkbox}>
+          <input
+            type="checkbox"
+            id="skipStaleData"
+            checked={config.skipStaleData || false}
+            onChange={(e) => handleConfigChange('skipStaleData', e.target.checked)}
+          />
+          <label htmlFor="skipStaleData" style={{ margin: 0 }}>
             {t.skipStaleData}
           </label>
         </div>
 
-        {config.skipStaleData !== false && (
+        {config.skipStaleData && (
           <div style={styles.formGroup}>
             <label style={styles.label}>{t.staleDataThreshold}</label>
             <input
               type="number"
               min="1"
-              value={config.staleDataThresholdMinutes || 60}
-              onChange={(e) => handleConfigChange('staleDataThresholdMinutes', Number(e.target.value))}
+              value={config.staleDataThreshold || 60}
+              onChange={(e) => handleConfigChange('staleDataThreshold', Number(e.target.value))}
               style={styles.input}
             />
           </div>
         )}
 
-        <div style={styles.formGroup}>
-          <label style={styles.label}>{t.staleDataShipname}</label>
-          <input
-            type="number"
-            min="0"
-            value={config.staleDataShipnameAddTime || 5}
-            onChange={(e) => handleConfigChange('staleDataShipnameAddTime', Number(e.target.value))}
-            style={styles.input}
-          />
-        </div>
+        {config.skipStaleData && (
+          <div style={styles.formGroup}>
+            <label style={styles.label}>{t.staleDataShipname}</label>
+            <input
+              type="number"
+              min="0"
+              value={config.staleDataShipname || 0}
+              onChange={(e) => handleConfigChange('staleDataShipname', Number(e.target.value))}
+              style={styles.input}
+            />
+          </div>
+        )}
 
         <div style={styles.formGroup}>
           <label style={styles.label}>{t.minAlarmSOG}</label>
@@ -476,7 +446,7 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
             type="number"
             min="0"
             step="0.1"
-            value={config.minAlarmSOG || 0.2}
+            value={config.minAlarmSOG || 0}
             onChange={(e) => handleConfigChange('minAlarmSOG', Number(e.target.value))}
             style={styles.input}
           />
@@ -494,262 +464,134 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
         </div>
       </div>
 
-      {/* NMEA2000 */}
-      {nmea2000Interfaces.length > 0 && (
-        <div style={styles.section}>
-          <h3 style={styles.sectionTitle}>{t.nmea2000Creation}</h3>
-
-          <div style={styles.formGroup}>
-            <label style={styles.checkbox}>
-              <input
-                type="checkbox"
-                checked={config.nmea2000Creation || false}
-                onChange={(e) =>
-                  handleConfigChange("nmea2000Creation", e.target.checked)
-                }
-              />
-              {t.nmea2000Creation}
-            </label>
-
-            <div
-              style={{
-                display: "block",
-                fontSize: "0.85em",
-                color: "#666",
-                marginTop: "8px",
-                marginBottom: "12px",
-                fontStyle: "italic",
-                lineHeight: "1.4",
-              }}
-            >
-              {t.nmea2000CreationHelp}
-            </div>
-          </div>
-
-          {config.nmea2000Creation && (
-            <div style={styles.formGroup}>
-              <label style={styles.label}>{t.nmea2000Interface}</label>
-
-              <select
-                style={{
-                  ...styles.select,
-                  width: "260px",
-                  padding: "8px 12px",
-                  borderRadius: "6px",
-                  border: "1px solid #ccc",
-                  backgroundColor: "#fff",
-                  fontSize: "0.95em",
-                  cursor: "pointer",
-                  appearance: "none",
-                  backgroundImage:
-                    "linear-gradient(45deg, transparent 50%, #666 50%), linear-gradient(135deg, #666 50%, transparent 50%)",
-                  backgroundPosition:
-                    "calc(100% - 15px) calc(50% - 3px), calc(100% - 10px) calc(50% - 3px)",
-                  backgroundSize: "5px 5px, 5px 5px",
-                  backgroundRepeat: "no-repeat",
-                }}
-                value={config.nmea2000Interface || ""}
-                onChange={(e) =>
-                  handleConfigChange("nmea2000Interface", e.target.value)
-                }
-              >
-                {nmea2000Interfaces.map((iface) => (
-                  <option key={iface} value={iface}>
-                    {iface}
-                  </option>
-                ))}
-              </select>
-
-              <div
-                style={{
-                  display: "block",
-                  fontSize: "0.85em",
-                  color: "#666",
-                  marginTop: "8px",
-                  marginBottom: "12px",
-                  fontStyle: "italic",
-                  lineHeight: "1.4",
-                }}
-              >
-                {t.nmea2000InterfaceHelp}
-              </div>
-              <label style={styles.label}>{t.nmea2000Src}</label>
-
-              <input
-                type="number"
-                min={0}
-                max={251}
-                style={{
-                  ...styles.input,
-                  width: "120px",
-                  padding: "6px 10px",
-                  borderRadius: "6px",
-                  border: "1px solid #ccc",
-                  fontSize: "0.95em",
-                }}
-                value={config.nmea2000Src ?? ""}
-                onChange={(e) => {
-                  const val = Number(e.target.value);
-                  if (val >= 0 && val <= 251) {
-                    handleConfigChange("nmea2000Src", val);
-                  }
-                }}
-              />
-            </div>
-          )}
-        </div>
-      )}
-
-
       {/* Debugging */}
       <div style={styles.section}>
-        <h3 style={styles.sectionTitle}>{t.debugging}</h3>
-
-        <div style={styles.formGroup}>
-          <label style={styles.checkbox}>
-            <input
-              type="checkbox"
-              checked={config.logDebugDetails || false}
-              onChange={(e) => handleConfigChange('logDebugDetails', e.target.checked)}
-            />
+        <h2 style={styles.sectionTitle}>{t.debugging}</h2>
+        <div style={styles.checkbox}>
+          <input
+            type="checkbox"
+            id="logDebugDetails"
+            checked={config.logDebugDetails || false}
+            onChange={(e) => handleConfigChange('logDebugDetails', e.target.checked)}
+          />
+          <label htmlFor="logDebugDetails" style={{ margin: 0 }}>
             {t.logDebugDetails}
           </label>
         </div>
 
         {config.logDebugDetails && (
-          <>
-            <div style={styles.formGroup}>
-              <label style={styles.label}>{t.logMMSI}</label>
-              <div style={{
-                display: 'block',
-                fontSize: '0.85em',
-                color: '#666',
-                marginTop: '8px',
-                marginBottom: '12px',
-                fontStyle: 'italic',
-                lineHeight: '1.4'
-              }}>
-                {currentLang === 'de' 
-                  ? 'Debug Ausgaben werden nur für das Schiff mit dieser MMSI erzeugt. Für das eigene Schiff / die eigene MMSI werden keine AIS Daten erzeugt. Wenn das Feld leer bleibt, werden Debug-Ausgaben für alle Schiffe (außer dem eigenen) erzeugt.'
-                  : 'Debug output is only generated for the vessel with this MMSI. No AIS data is generated for your own vessel / own MMSI. If the field is left empty, debug output is generated for all vessels (except your own).'}
-              </div>
-              <input
-                type="text"
-                value={config.logMMSI || ''}
-                onChange={(e) => handleConfigChange('logMMSI', e.target.value)}
-                placeholder="e.g. 123456789"
-                style={{
-                  ...styles.input,
-                  ...(isMMSIInvalid() ? { borderColor: '#dc3545', backgroundColor: '#fff5f5' } : {})
-                }}
-              />
-              {isMMSIInvalid() && (
-                <div style={{
-                  color: '#dc3545',
-                  fontSize: '0.85em',
-                  marginTop: '8px',
-                  fontWeight: '500'
-                }}>
-                  {currentLang === 'de' 
-                    ? '⚠️ Sie können nicht die eigene MMSI verwenden!'
-                    : '⚠️ You cannot use your own MMSI!'}
-                </div>
-              )}
-            </div>
-
-            <div style={styles.formGroup}>
-              <label style={styles.checkbox}>
-                <input
-                  type="checkbox"
-                  checked={config.logDebugStale || false}
-                  onChange={(e) => handleConfigChange('logDebugStale', e.target.checked)}
-                />
-                {t.logDebugStale}
-              </label>
-            </div>
-
-            <div style={styles.formGroup}>
-              <label style={styles.checkbox}>
-                <input
-                  type="checkbox"
-                  checked={config.logDebugJSON || false}
-                  onChange={(e) => handleConfigChange('logDebugJSON', e.target.checked)}
-                />
-                {t.logDebugJSON}
-              </label>
-            </div>
-
-            <div style={styles.formGroup}>
-              <label style={styles.checkbox}>
-                <input
-                  type="checkbox"
-                  checked={config.logDebugAIS || false}
-                  onChange={(e) => handleConfigChange('logDebugAIS', e.target.checked)}
-                />
-                {t.logDebugAIS}
-              </label>
-            </div>
-
-            <div style={styles.formGroup}>
-              <label style={styles.checkbox}>
-                <input
-                  type="checkbox"
-                  checked={config.logDebugSOG || false}
-                  onChange={(e) => handleConfigChange('logDebugSOG', e.target.checked)}
-                />
-                {t.logDebugSOG}
-              </label>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* VesselFinder */}
-      <div style={styles.section}>
-        <h3 style={styles.sectionTitle}>{t.vesselFinder}</h3>
-
-        <div style={styles.formGroup}>
-          <label style={styles.checkbox}>
+          <div style={styles.formGroup}>
+            <label style={styles.label}>{t.logMMSI}</label>
             <input
-              type="checkbox"
-              checked={config.vesselFinderEnabled || false}
-              onChange={(e) => handleConfigChange('vesselFinderEnabled', e.target.checked)}
+              type="text"
+              placeholder="e.g. 227651230"
+              value={config.logMMSI || ''}
+              onChange={(e) => handleConfigChange('logMMSI', e.target.value)}
+              style={styles.input}
             />
-            {t.vesselFinderEnabled}
+            {isMMSIInvalid() && (
+              <div style={styles.error}>
+                {currentLang === 'de'
+                  ? 'MMSI darf nicht die eigene MMSI sein!'
+                  : 'MMSI must not be the own vessel MMSI!'}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={styles.checkbox}>
+          <input
+            type="checkbox"
+            id="logDebugStale"
+            checked={config.logDebugStale || false}
+            onChange={(e) => handleConfigChange('logDebugStale', e.target.checked)}
+          />
+          <label htmlFor="logDebugStale" style={{ margin: 0 }}>
+            {t.logDebugStale}
           </label>
         </div>
 
-        {config.vesselFinderEnabled && (
+        <div style={styles.checkbox}>
+          <input
+            type="checkbox"
+            id="logDebugJSON"
+            checked={config.logDebugJSON || false}
+            onChange={(e) => handleConfigChange('logDebugJSON', e.target.checked)}
+          />
+          <label htmlFor="logDebugJSON" style={{ margin: 0 }}>
+            {t.logDebugJSON}
+          </label>
+        </div>
+
+        <div style={styles.checkbox}>
+          <input
+            type="checkbox"
+            id="logDebugAIS"
+            checked={config.logDebugAIS || false}
+            onChange={(e) => handleConfigChange('logDebugAIS', e.target.checked)}
+          />
+          <label htmlFor="logDebugAIS" style={{ margin: 0 }}>
+            {t.logDebugAIS}
+          </label>
+        </div>
+
+        <div style={styles.checkbox}>
+          <input
+            type="checkbox"
+            id="logDebugSOG"
+            checked={config.logDebugSOG || false}
+            onChange={(e) => handleConfigChange('logDebugSOG', e.target.checked)}
+          />
+          <label htmlFor="logDebugSOG" style={{ margin: 0 }}>
+            {t.logDebugSOG}
+          </label>
+        </div>
+      </div>
+
+      {/* NMEA2000 */}
+      <div style={styles.section}>
+        <h2 style={styles.sectionTitle}>NMEA 2000</h2>
+        <div style={styles.checkbox}>
+          <input
+            type="checkbox"
+            id="nmea2000Creation"
+            checked={config.nmea2000Creation || false}
+            onChange={(e) => handleConfigChange('nmea2000Creation', e.target.checked)}
+          />
+          <label htmlFor="nmea2000Creation" style={{ margin: 0 }}>
+            {t.nmea2000Creation}
+          </label>
+        </div>
+        <div style={{ fontSize: '0.85em', color: '#666', marginBottom: '15px' }}>
+          {t.nmea2000CreationHelp}
+        </div>
+
+        {config.nmea2000Creation && (
           <>
             <div style={styles.formGroup}>
-              <label style={styles.label}>{t.vesselFinderHost}</label>
-              <input
-                type="text"
-                value={config.vesselFinderHost || 'ais.vesselfinder.com'}
-                onChange={(e) => handleConfigChange('vesselFinderHost', e.target.value)}
+              <label style={styles.label}>{t.nmea2000Interface}</label>
+              <div style={{ fontSize: '0.85em', color: '#666', marginBottom: '10px' }}>
+                {t.nmea2000InterfaceHelp}
+              </div>
+              <select
+                value={config.nmea2000Interface || ''}
+                onChange={(e) => handleConfigChange('nmea2000Interface', e.target.value)}
                 style={styles.input}
-              />
+              >
+                {nmea2000Interfaces.map(iface => (
+                  <option key={iface} value={iface}>{iface}</option>
+                ))}
+              </select>
             </div>
 
             <div style={styles.formGroup}>
-              <label style={styles.label}>{t.vesselFinderPort}</label>
+              <label style={styles.label}>{t.nmea2000Src}</label>
               <input
                 type="number"
-                min="1"
-                max="65535"
-                value={config.vesselFinderPort || 5500}
-                onChange={(e) => handleConfigChange('vesselFinderPort', Number(e.target.value))}
-                style={styles.input}
-              />
-            </div>
-
-            <div style={styles.formGroup}>
-              <label style={styles.label}>{t.vesselFinderUpdateRate}</label>
-              <input
-                type="number"
-                min="1"
-                value={config.vesselFinderUpdateRate || 60}
-                onChange={(e) => handleConfigChange('vesselFinderUpdateRate', Number(e.target.value))}
+                min="0"
+                max="251"
+                value={config.nmea2000Src || 42}
+                onChange={(e) => handleConfigChange('nmea2000Src', Number(e.target.value))}
                 style={styles.input}
               />
             </div>
@@ -757,30 +599,95 @@ const PluginConfigurationPanel = ({ configuration, save }) => {
         )}
       </div>
 
-      {/* Cloud Vessels */}
-      {!aisfleetEnabled && (
-        <div style={styles.section}>
-          <h3 style={styles.sectionTitle}>{t.cloudVessels}</h3>
+      {/* Forwarding */}
+      <div style={styles.section}>
+        <h2 style={styles.sectionTitle}>{t.forwarding}</h2>
+        
+        <div style={styles.formGroup}>
+          <label style={styles.label}>{t.forwardingUpdateRate}</label>
+          <input
+            type="number"
+            min="1"
+            value={config.forwardingUpdateRate || 60}
+            onChange={(e) => handleConfigChange('forwardingUpdateRate', Number(e.target.value))}
+            style={styles.input}
+          />
+        </div>
 
-          <div style={styles.formGroup}>
-            <label style={styles.checkbox}>
-              <input
-                type="checkbox"
-                checked={config.cloudVesselsEnabled !== false}
-                onChange={(e) => handleConfigChange('cloudVesselsEnabled', e.target.checked)}
-              />
+        {/* Forwardings List */}
+        <div style={styles.forwardingsList}>
+          {(config.forwardings || []).map((forwarding, index) => (
+            <div key={index} style={styles.forwardingItem}>
+              <div style={styles.forwardingInputsRow}>
+                <div style={styles.forwardingInputGroup}>
+                  <label style={{...styles.label, marginBottom: '5px'}}>{t.forwardingHost}</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. ais.vesselfinder.com"
+                    value={forwarding.host || ''}
+                    onChange={(e) => handleUpdateForwarding(index, 'host', e.target.value)}
+                    style={{...styles.input, width: '100%'}}
+                  />
+                </div>
+
+                <div style={styles.forwardingInputGroup}>
+                  <label style={{...styles.label, marginBottom: '5px'}}>{t.forwardingPort}</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="65535"
+                    placeholder="e.g. 5500"
+                    value={forwarding.port || ''}
+                    onChange={(e) => handleUpdateForwarding(index, 'port', Number(e.target.value))}
+                    style={{...styles.input, width: '100%'}}
+                  />
+                </div>
+
+                <button
+                  onClick={() => handleDeleteForwarding(index)}
+                  style={styles.deleteButton}
+                  title={t.deleteConnection}
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Add Connection Button */}
+        <button
+          onClick={handleAddForwarding}
+          style={styles.addConnectionButton}
+        >
+          + {t.addConnection}
+        </button>
+      </div>
+
+      {/* Cloud Vessels */}
+      {aisfleetEnabled && (
+        <div style={styles.section}>
+          <h2 style={styles.sectionTitle}>{t.cloudVessels}</h2>
+          <div style={styles.checkbox}>
+            <input
+              type="checkbox"
+              id="cloudVesselsEnabled"
+              checked={config.cloudVesselsEnabled || false}
+              onChange={(e) => handleConfigChange('cloudVesselsEnabled', e.target.checked)}
+            />
+            <label htmlFor="cloudVesselsEnabled" style={{ margin: 0 }}>
               {t.cloudVesselsEnabled}
             </label>
           </div>
 
-          {config.cloudVesselsEnabled !== false && (
+          {config.cloudVesselsEnabled && (
             <>
               <div style={styles.formGroup}>
                 <label style={styles.label}>{t.cloudVesselsUpdateInterval}</label>
                 <input
                   type="number"
                   min="1"
-                  value={config.cloudVesselsUpdateInterval || 60}
+                  value={config.cloudVesselsUpdateInterval || 300}
                   onChange={(e) => handleConfigChange('cloudVesselsUpdateInterval', Number(e.target.value))}
                   style={styles.input}
                 />
@@ -963,6 +870,65 @@ const styles = {
     cursor: 'pointer',
     gap: '8px',
   },
+  forwardingsList: {
+    marginBottom: '15px',
+    backgroundColor: '#f9f9f9',
+    padding: '10px',
+    borderRadius: '4px',
+    border: '1px solid #e0e0e0',
+  },
+  forwardingItem: {
+    marginBottom: '15px',
+    paddingBottom: '15px',
+    borderBottom: '1px solid #ddd',
+  },
+  forwardingItem_last: {
+    marginBottom: '0',
+    paddingBottom: '0',
+    borderBottom: 'none',
+  },
+  forwardingInputsRow: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 150px 50px',
+    gap: '15px',
+    alignItems: 'flex-end',
+  },
+  forwardingInputGroup: {
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  deleteButton: {
+    backgroundColor: '#ff6b6b',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    padding: '8px 12px',
+    cursor: 'pointer',
+    fontWeight: 'bold',
+    fontSize: '1.2em',
+    transition: 'background 0.3s',
+    height: '36px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteButton_hover: {
+    backgroundColor: '#ff5252',
+  },
+  addConnectionButton: {
+    padding: '10px 20px',
+    backgroundColor: '#28a745',
+    color: 'white',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontWeight: '500',
+    fontSize: '1em',
+    transition: 'background 0.3s',
+  },
+  addConnectionButton_hover: {
+    backgroundColor: '#218838',
+  },
   buttonGroup: {
     display: 'flex',
     gap: '10px',
@@ -999,6 +965,9 @@ const styles = {
   error: {
     backgroundColor: '#f8d7da',
     color: '#721c24',
+    padding: '12px',
+    borderRadius: '4px',
+    marginBottom: '15px',
   },
   dialog: {
     position: 'fixed',

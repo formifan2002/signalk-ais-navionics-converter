@@ -14,7 +14,7 @@ module.exports = function (app) {
 		id: "signalk-ais-navionics-converter",
 		name: "AIS converter to NMEA 0183 (TCP) and NMEA 2000 PGNs",
 		description:
-			"SignalK plugin to convert AIS data to NMEA 0183 (TCP) and generate NMEA 2000 AIS PGNs, with optional upload to vesselfinder.com",
+			"SignalK plugin to convert AIS data to NMEA 0183 (TCP) and generate NMEA 2000 AIS PGNs, with optional forwarding to other servers (e.g. vesselfinder.com)",
 	};
 
 	const encoder = new AISEncoder(app);
@@ -33,7 +33,7 @@ module.exports = function (app) {
 	let lastTCPBroadcast = new Map();
 	let messageIdCounter = 0;
 	let ownMMSI = null;
-	let vesselFinderLastUpdate = 0;
+	let forwardingLastUpdate = 0;
 	let signalkApiUrl = null;
 	let cloudVesselsCache = null;
 	let cloudVesselsLastFetch = 0;
@@ -179,26 +179,34 @@ module.exports = function (app) {
 					"Device address (Source Address) which device on the bus sent the message (min 0, max 251)",
 				default: 42,
 			},
-			vesselFinderEnabled: {
-				type: "boolean",
-				title: "Enable VesselFinder forwarding",
-				description:
-					"AIS type 1 messages (position) will be send to vesselfinder.com via UDP",
-				default: false,
+			forwardings: {
+				type: "array",
+				title: "Forwarding destinations",
+				description: "List of hosts to forward AIS messages to",
+				items: {
+					type: "object",
+					properties: {
+						host: {
+							type: "string",
+							title: "Host",
+							description: "Hostname or IP address",
+						},
+						port: {
+							type: "number",
+							title: "Port",
+							description: "UDP port number",
+							minimum: 1,
+							maximum: 65535,
+						},
+					},
+					required: ["host", "port"],
+				},
+				default: [],
 			},
-			vesselFinderHost: {
-				type: "string",
-				title: "VesselFinder Host (default: ais.vesselfinder.com)",
-				default: "ais.vesselfinder.com",
-			},
-			vesselFinderPort: {
+			forwardingUpdateRate: {
 				type: "number",
-				title: "VesselFinder UDP Port (default: 5500)",
-				default: 5500,
-			},
-			vesselFinderUpdateRate: {
-				type: "number",
-				title: "VesselFinder Update Rate (seconds)",
+				title: "Forwarding Update Rate (seconds)",
+				description: "How often to send updates to all forwarding destinations",
 				default: 60,
 			},
 			cloudVesselsEnabled: {
@@ -377,8 +385,8 @@ module.exports = function (app) {
 				}
 				startUpdateLoop(options);
 
-				if (options.vesselFinderEnabled && options.vesselFinderHost) {
-					startVesselFinderForwarding(options);
+				if (options.forwardings && options.forwardings.length > 0) {
+					startForwardingServer(options);
 				}
 			});
 		}, 5000);
@@ -603,10 +611,17 @@ module.exports = function (app) {
 		}
 	}
 
-	function startVesselFinderForwarding(options) {
+	function startForwardingServer(options) {
+		if (!options.forwardings || options.forwardings.length === 0) return;
+
 		udpClient = dgram.createSocket("udp4");
+		
+		let forwardingList = options.forwardings
+			.map((f) => `${f.host}:${f.port}`)
+			.join(", ");
+		
 		app.debug(
-			`VesselFinder UDP forwarding enabled: ${options.vesselFinderHost}:${options.vesselFinderPort}`,
+			`Forwarding UDP enabled for: ${forwardingList}`,
 		);
 	}
 
@@ -634,26 +649,34 @@ module.exports = function (app) {
 		});
 	}
 
-	function sendToVesselFinder(message, options) {
-		if (!udpClient || !options.vesselFinderEnabled) return;
+	function sendToForwardings(message, options) {
+		if (!udpClient || !options.forwardings || options.forwardings.length === 0) return;
 
-		try {
-			const buffer = Buffer.from(message + "\r\n");
-			udpClient.send(
-				buffer,
-				0,
-				buffer.length,
-				options.vesselFinderPort,
-				options.vesselFinderHost,
-				(err) => {
-					if (err) {
-						app.error(`Error sending to VesselFinder: ${err}`);
-					}
-				},
-			);
-		} catch (error) {
-			app.error(`VesselFinder send error: ${error}`);
-		}
+		app.debug(`sendToForwardings called with ${options.forwardings.length} forwarding destinations`);
+
+		const forwardings = options.forwardings;
+		
+		forwardings.forEach((forwarding) => {
+			try {
+				const buffer = Buffer.from(message + "\r\n");
+				udpClient.send(
+					buffer,
+					0,
+					buffer.length,
+					forwarding.port,
+					forwarding.host,
+					(err) => {
+						if (err) {
+							app.error(
+								`Error sending to forwarding ${forwarding.host}:${forwarding.port}: ${err}`,
+							);
+						} 
+					},
+				);
+			} catch (error) {
+				app.error(`Forwarding send error: ${error}`);
+			}
+		});
 	}
 
 	function startUpdateLoop(options) {
@@ -1286,14 +1309,21 @@ module.exports = function (app) {
 				const hasNewClients =
 					newTcpClients.length > 0 || newWSClients.length > 0;
 				const nowTimestamp = Date.now();
-				const vesselFinderUpdateDue =
-					options.vesselFinderEnabled &&
-					nowTimestamp - vesselFinderLastUpdate >=
-						options.vesselFinderUpdateRate * 1000;
+				const forwardingUpdateDue =
+					options.forwardings &&
+					options.forwardings.length > 0 &&
+					nowTimestamp - forwardingLastUpdate >=
+						options.forwardingUpdateRate * 1000;
+
+				if (options.forwardings && options.forwardings.length > 0) {
+					app.debug(
+						`Forwarding check: ${forwardingUpdateDue ? 'DUE' : 'NOT DUE'} | Last update: ${forwardingLastUpdate} | Now: ${nowTimestamp} | Interval: ${options.forwardingUpdateRate}s | Time since last: ${Math.round((nowTimestamp - forwardingLastUpdate) / 1000)}s`,
+					);
+				}
 
 				let sentCount = 0;
 				let unchangedCount = 0;
-				let vesselFinderCount = 0;
+				let forwardingCount = 0;
 
 				for (const vessel of filtered) {
 					// PGN-Array für dieses Schiff
@@ -1318,7 +1348,7 @@ module.exports = function (app) {
 					const needsTCPResend =
 						timeSinceLastBroadcast >= options.tcpResendInterval * 1000;
 
-					if (!hasChanged && !vesselFinderUpdateDue && !needsTCPResend) {
+					if (!hasChanged && !forwardingUpdateDue && !needsTCPResend) {
 						unchangedCount++;
 						continue;
 					}
@@ -1379,7 +1409,7 @@ module.exports = function (app) {
 							}
 						}
 
-						if (vesselFinderUpdateDue) {
+						if (forwardingUpdateDue) {
 							let posTimestamp = vessel.navigation?.position?.timestamp;
 							if (!posTimestamp && vessel.navigation?.position?.value) {
 								posTimestamp = vessel.navigation.position.value.timestamp;
@@ -1390,8 +1420,9 @@ module.exports = function (app) {
 								const fiveMinutes = 5 * 60 * 1000;
 
 								if (posAge <= fiveMinutes) {
-									sendToVesselFinder(sentence, options);
-									vesselFinderCount++;
+									app.debug(`Sending to forwardings for vessel MMSI ${vessel.mmsi}`);
+									sendToForwardings(sentence, options);
+									forwardingCount++;
 								}
 							}
 						}
@@ -1513,10 +1544,10 @@ module.exports = function (app) {
 					if (newWSClients.length > 0) newWSClients = [];
 				}
 
-				if (vesselFinderUpdateDue) {
-					vesselFinderLastUpdate = nowTimestamp;
+				if (forwardingUpdateDue) {
+					forwardingLastUpdate = nowTimestamp;
 					app.debug(
-						`VesselFinder: sent ${vesselFinderCount} vessels changed in last ${options.vesselFinderUpdateRate} seconds.`,
+						`Forwarding: sent ${forwardingCount} vessels changed in last ${options.forwardingUpdateRate} seconds.`,
 					);
 				}
 
@@ -1596,4 +1627,4 @@ module.exports = function (app) {
 	}
 
 	return plugin;
-};
+};	
